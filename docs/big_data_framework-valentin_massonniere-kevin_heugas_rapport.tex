@@ -1,0 +1,343 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage[hidelinks,
+            colorlinks=true,
+            linkcolor=black,
+            urlcolor=blue!60!black,
+            citecolor=black]{hyperref}
+\usepackage{enumitem}
+\setlist[itemize]{itemsep=2pt,topsep=4pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Hubble Lakehouse --- Rapport}
+\fancyhead[R]{Efrei \textbar{} Big Data Framework}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{Hubble Lakehouse \\[0.3cm]
+       \large Rapport \\[0.2cm]
+       \normalsize Pipeline Big Data pour l'analyse des observations du télescope spatial Hubble}
+\author{Valentin Massonnière \and Kevin Heugas}
+\date{\today}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    \vspace*{1.5cm}
+
+    {\Large \textbf{EFREI Paris}}\\[0.3cm]
+    {\large Formation \textit{Big Data Framework}}\\[3cm]
+
+    \rule{\linewidth}{0.5pt}\\[0.6cm]
+    {\Huge \textbf{Hubble Lakehouse}}\\[0.4cm]
+    {\LARGE Rapport}\\[0.6cm]
+    {\large Pipeline Big Data pour l'analyse des observations\\ du télescope spatial Hubble}\\[0.4cm]
+    \rule{\linewidth}{0.5pt}\\[2.5cm]
+
+    {\large \textbf{Auteurs}}\\[0.4cm]
+    {\large Valentin Massonnière}\\
+    {\large Kevin Heugas}\\[3cm]
+
+    {\large \today}
+
+    \vfill
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ----------- PARTIE 1 -------------
+\section{Introduction}
+
+\subsection{Contexte}
+
+Lancé en 1990 par la NASA et l'ESA, le télescope spatial Hubble (HST) constitue depuis plus de 30 ans l'un des instruments scientifiques le plus puissant de l'histoire de l'astronomie. Ses observations couvrent un large spectre, de l'ultraviolet au proche infrarouge, et alimentent des champs de recherche aussi variés que la cosmologie, l'étude des exoplanètes ou la physique stellaire.
+
+L'ensemble des observations produites par Hubble est mis à disposition du public via deux archives principales : le \href{https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html}{\textit{Mikulski Archive for Space Telescopes}} (MAST) opéré par le STScI, et l'\href{https://www.cosmos.esa.int/web/hst/fetching-data}{\textit{ESA Hubble Science Archive}} opéré par l'ESAC.
+
+\subsection{Objectifs du projet}
+
+Le projet vise à concevoir, implémenter et documenter une \textbf{architecture Lakehouse complète} suivant la logique \textit{Médaillon} (couches Bronze, Silver, Gold), capable de :
+
+\begin{itemize}
+    \item \textbf{Ingérer} de manière fiable deux sources hétérogènes : un historique massif d'observations Hubble (batch) et un flux continu de météo spatiale (streaming) ;
+    \item \textbf{Stocker} la donnée brute dans un système de fichiers distribué (HDFS) sans transformation préalable, garantissant rejouabilité et auditabilité ;
+    \item \textbf{Nettoyer, typer et structurer} la donnée dans une couche intermédiaire (Hive / Parquet) servant de socle commun à l'ensemble des cas d'usage ;
+    \item \textbf{Modéliser et matérialiser} dans une base relationnelle (PostgreSQL) quatre datamarts métier répondant à des problématiques scientifiques et techniques concrètes ;
+    \item \textbf{Tracer} chaque étape du pipeline par des logs consultables depuis le dashboard Airflow.
+\end{itemize}
+
+\subsection{Livrables attendus}
+
+Les livrables attendus sont :
+
+\begin{itemize}
+    \item un \textbf{rapport écrit} décrivant l'architecture, les choix techniques, les jeux de données mobilisés et les résultats obtenus ;
+    \item un \textbf{dépôt GitHub} regroupant l'ensemble du code source du pipeline.
+\end{itemize}
+
+\newpage
+% ----------- PARTIE 2 -------------
+\section{Périmètre fonctionnel}
+
+\subsection{Profils utilisateurs}
+
+Le projet répond à quatre problématiques posées par quatre métiers scientifiques.
+
+\paragraph{Physicien.} Quelles régions du ciel ont été sur-observées par Hubble, et quels sont les angles morts de la recherche~?
+
+\paragraph{Chimiste.} Quelles cibles ont été observées avec des filtres à bande étroite correspondant à des raies d'émission spécifiques (H$\alpha$, OIII, SII\dots)~?
+
+\paragraph{Biologiste.} Quelles observations ont été acquises pendant une éruption solaire ou un événement de météo spatiale, et risquent d'être corrompues par les radiations~?
+
+\paragraph{Ingénieur spatial.} Comment évoluent les temps de calibration des instruments Hubble au fil du temps~?
+
+\subsection{Hors-périmètre}
+
+Le projet ne couvre pas :
+
+\begin{itemize}
+    \item l'analyse du contenu des images FITS ; seules les métadonnées sont exploitées ;
+    \item la prédiction (apprentissage automatique) ; les datamarts servent au reporting et à l'exploration ;
+\end{itemize}
+
+\newpage
+% ----------- PARTIE 3 -------------
+\section{Sources de données}
+
+\subsection{Source 1 --- MAST}
+
+MAST est l'archive publique des observations Hubble, accessible via le \href{https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html}{portail web} du STScI. Les métadonnées sont exportées au format CSV. Le fichier utilisé contient environ 500\,000 lignes, décrites par le schéma CAOM (\textit{Common Archive Observation Model}).
+
+\subsection{Source 2 --- NOAA SWPC}
+
+NOAA SWPC publie en quasi-temps réel les indicateurs de météo spatiale : vent solaire, flux X-ray, indice planétaire Kp, éruptions solaires. Les données sont disponibles au format JSON sur des endpoints HTTP (\href{https://services.swpc.noaa.gov/json/}{services.swpc.noaa.gov/json/}), la récupération se fait en mode streaming.
+
+\subsection{Choix des sources}
+
+MAST fournit un historique statique traité en batch. NOAA SWPC fournit un flux temps réel traité en streaming.
+
+\newpage
+% ----------- PARTIE 4 -------------
+\section{Architecture}
+
+\subsection{Vue d'ensemble}
+
+L'architecture suit le patron Médaillon, organisé en trois couches successives : Bronze, Silver et Gold. Les données circulent des sources jusqu'aux outils de restitution en passant par chacune de ces couches. La figure~\ref{fig:archi} présente le pipeline complet.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=\linewidth]{architecture.png}
+    \caption{Architecture Lakehouse du projet.}
+    \label{fig:archi}
+\end{figure}
+
+\subsection{Couches Médaillon}
+
+\paragraph{Bronze.} Stockage sur HDFS au format Parquet. Les exports MAST (CSV) et les flux NOAA SWPC (JSON) sont convertis en Parquet sans transformation métier. La couche est immuable et sert de référence en cas de retraitement.
+
+\paragraph{Silver.} Nettoyage et structuration via Apache Spark. Les données sont typées, parsées (filtres, dates MJD), converties au format Parquet, et exposées via Apache Hive.
+
+\paragraph{Gold.} Agrégation et calcul des indicateurs métier. Quatre tables PostgreSQL alimentent les quatre datamarts, une par profil utilisateur. Une API REST développée en Python avec Flask expose ces tables, et l'accès est protégé par jeton JWT.
+
+\newpage
+% ----------- PARTIE 5 -------------
+\section{Spécifications fonctionnelles}
+
+\subsection{Ingestion}
+
+\paragraph{MAST.} Le fichier CSV est téléchargé depuis le portail MAST en mode batch. Un job Airflow déclenche un script Python qui dépose le fichier dans HDFS Bronze, après conversion au format Parquet.
+
+\paragraph{NOAA SWPC.} Les endpoints JSON sont interrogés en mini-batch toutes les minutes. Un job Spark Structured Streaming lit les réponses HTTP et les écrit dans HDFS Bronze au format Parquet.
+
+\subsection{Transformations par couche}
+
+\paragraph{Bronze $\rightarrow$ Silver.} Spark lit les fichiers Parquet bruts et applique le typage des colonnes, le parsing des champs structurés (filtres, polygones, dates MJD vers UTC\dots) et la suppression des colonnes redondantes. Les tables Silver sont stockées au format Parquet et déclarées dans Hive.
+
+\paragraph{Silver $\rightarrow$ Gold.} Spark SQL agrège les tables Silver pour produire les indicateurs métier. Les résultats sont chargés dans PostgreSQL via JDBC.
+
+\subsection{Datamarts}
+
+Quatre datamarts PostgreSQL sont produits, un par profil utilisateur.
+
+\paragraph{Physicien.} Savoir quelles régions du ciel Hubble a beaucoup observées, et lesquelles sont restées dans l'ombre.
+
+\paragraph{Chimiste.} Retrouver les images prises à travers des filtres capables de révéler certains gaz dans l'espace, comme l'hydrogène, l'oxygène ou le soufre.
+
+\paragraph{Biologiste.} Repérer les observations prises pendant une éruption solaire, qui risquent d'être abîmées par les radiations.
+
+\paragraph{Ingénieur spatial.} Suivre l'usure des instruments de Hubble en regardant comment leur temps de calibration évolue au fil des années.
+
+\subsection{Restitution}
+
+Les quatre tables PostgreSQL sont exposées par une API REST écrite en Python avec Flask. Chaque datamart correspond à un endpoint dédié, qui retourne les enregistrements au format JSON. L'accès est protégé par jeton JWT : chaque requête doit présenter un token valide dans son en-tête \texttt{Authorization}. Les outils de visualisation et les scripts d'analyse consomment ces endpoints, sans accès direct à la base.
+
+\newpage
+% ----------- PARTIE 6 -------------
+\section{Spécifications techniques}
+
+\subsection{Volumétrie}
+
+L'export MAST représente environ 500\,000 observations, soit quelques centaines de méga-octets en Parquet. Le flux NOAA SWPC ajoute quelques kilo-octets par minute.
+
+\subsection{Orchestration}
+
+Apache Airflow pilote l'ensemble du pipeline batch via un DAG quotidien. Le flux NOAA SWPC est porté par un job Spark Structured Streaming permanent.
+
+\subsection{Qualité et reprise}
+
+Chaque couche est idempotente : un retraitement ne crée pas de doublons. Les enregistrements rejetés (champs manquants, valeurs incohérentes) sont conservés dans une table de rejet par couche.
+
+\subsection{Bonus --- déploiement conteneurisé}
+
+En complément du périmètre commun, Valentin déploie le pipeline sur un VPS personnel. Chaque composant est conteneurisé avec Docker et orchestré par Kubernetes.
+
+Les logs des jobs sont centralisés et consultables depuis le dashboard Airflow, accessible à l'adresse \href{https://efrei-bigdata-airflow.valentin-massonniere.ch}{efrei-bigdata-airflow.valentin-massonniere.ch} (utilisateur \texttt{invit}, mot de passe \texttt{invit}). Pour des raisons de sécurité du VPS, ce compte dispose d'un accès en lecture seule et ne peut pas déclencher de DAG manuellement.
+
+\newpage
+% ----------- PARTIE 7 -------------
+\section{Modèle de données}
+
+Chaque profil utilisateur est servi par une table PostgreSQL dédiée, alimentée par un job Spark SQL depuis la couche Silver. Les schémas des sources sont documentés ci-dessous :
+
+\subsection{Datamart Physicien}
+
+{\small\textit{Quelles régions du ciel ont été sur-observées par Hubble, et quels sont les angles morts de la recherche~?}}
+
+\begin{tabularx}{\linewidth}{llX}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Description} \\
+\midrule
+\texttt{ra\_bin}        & float & Position est-ouest dans le ciel (sorte de longitude céleste). \\
+\texttt{dec\_bin}       & float & Position nord-sud dans le ciel (sorte de latitude céleste). \\
+\texttt{nb\_obs}        & int   & Nombre de fois où cette zone du ciel a été photographiée. \\
+\texttt{total\_exptime} & float & Temps total passé à observer cette zone, en secondes. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Datamart Chimiste}
+
+{\small\textit{Quelles cibles ont été observées avec des filtres à bande étroite correspondant à des raies d'émission spécifiques (H$\alpha$, OIII, SII\dots)~?}}
+
+\begin{tabularx}{\linewidth}{llX}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Description} \\
+\midrule
+\texttt{target\_name}   & string & Nom de l'objet observé (étoile, nébuleuse, galaxie\dots). \\
+\texttt{filter}         & string & Filtre coloré placé devant l'instrument pendant la prise. \\
+\texttt{emission\_line} & string & Gaz que ce filtre permet de mettre en évidence (hydrogène, oxygène, soufre\dots). \\
+\texttt{nb\_obs}        & int    & Nombre d'observations correspondantes. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Datamart Biologiste}
+
+{\small\textit{Quelles observations ont été acquises pendant une éruption solaire ou un événement de météo spatiale, et risquent d'être corrompues par les radiations~?}}
+
+\begin{tabularx}{\linewidth}{llX}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Description} \\
+\midrule
+\texttt{obs\_id}      & string    & Référence unique de l'observation. \\
+\texttt{t\_start}     & timestamp & Date et heure du début de la prise. \\
+\texttt{t\_end}       & timestamp & Date et heure de fin de la prise. \\
+\texttt{flare\_class} & string    & Intensité de l'éruption solaire qui a eu lieu pendant la prise. \\
+\texttt{risk\_score}  & int       & Niveau de risque que l'image soit abîmée par les radiations. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Datamart Ingénieur}
+
+{\small\textit{Comment évoluent les temps de calibration des instruments Hubble au fil du temps~?}}
+
+\begin{tabularx}{\linewidth}{llX}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Description} \\
+\midrule
+\texttt{instrument}       & string & Nom de l'instrument de Hubble (caméra, spectrographe\dots). \\
+\texttt{year\_month}      & date   & Mois auquel la mesure correspond. \\
+\texttt{avg\_calib\_time} & float  & Temps moyen passé à régler l'instrument ce mois-là, en secondes. \\
+\texttt{trend\_12m}       & float  & Évolution sur les 12 derniers mois ; une valeur positive signifie que l'instrument met de plus en plus de temps à se régler. \\
+\bottomrule
+\end{tabularx}
+
+\newpage
+% ----------- PARTIE 8 -------------
+\section{Répartition des tâches}
+
+Le projet est mené en binôme. La répartition s'appuie sur les appétences techniques de chacun.
+
+\subsection{Valentin}
+
+\begin{itemize}
+    \item Mise en place et maintenance du dépôt GitHub.
+    \item Déploiement de l'infrastructure (HDFS, Spark, Hive, PostgreSQL, Airflow) sur un VPS personnel via Docker et Kubernetes (bonus).
+    \item Ingestion du flux NOAA SWPC via Spark Structured Streaming.
+    \item Transformations Silver et Gold liées aux événements de météo spatiale.
+    \item Datamarts Biologiste et Ingénieur.
+    \item Coordination générale du projet.
+\end{itemize}
+
+\subsection{Kevin}
+
+\begin{itemize}
+    \item Ingestion batch de l'export MAST via Python et Airflow.
+    \item Transformations Silver des observations Hubble (typage, parsing des filtres, conversion MJD vers UTC\dots).
+    \item Modélisation des tables Hive de la couche Silver.
+    \item Datamarts Physicien et Chimiste.
+\end{itemize}
+
+\subsection{Tâches communes}
+
+\begin{itemize}
+    \item Choix techniques structurants (formats, schémas Gold, conventions de nommage).
+    \item Rédaction du rapport.
+\end{itemize}
+
+\newpage
+% ----------- PARTIE 9 -------------
+\section{Détail des livrables}
+
+\subsection{Dépôt GitHub}
+
+Le dépôt est hébergé à l'adresse \href{https://github.com/TheValll/efrei-projet-big-data}{github.com/TheValll/efrei-projet-big-data}. Il regroupe l'ensemble des artefacts du projet, organisés comme ceci :
+
+\begin{itemize}
+    \item \texttt{ingestion/} : scripts Python d'ingestion MAST et du flux NOAA SWPC ;
+    \item \texttt{spark/} : jobs Spark des transformations Bronze $\rightarrow$ Silver $\rightarrow$ Gold ;
+    \item \texttt{sql/} : scripts SQL de création des datamarts PostgreSQL ;
+    \item \texttt{dags/} : DAG Airflow d'orchestration du pipeline ;
+    \item \texttt{infra/} : Dockerfiles et manifestes Kubernetes pour le déploiement bonus sur VPS ;
+    \item \texttt{docs/} : documentation technique complémentaire ;
+    \item \texttt{README.md} : guide de démarrage et instructions d'exécution.
+\end{itemize}
+
+\subsection{Rapport}
+
+Ce document intègre le cahier des charges et sera complété au fil du projet par :
+
+\begin{itemize}
+    \item l'architecture finale réellement implémentée ;
+    \item les choix techniques et leurs justifications ;
+    \item les résultats obtenus pour chaque datamart, avec exemples ;
+    \item les difficultés rencontrées et les pistes d'amélioration.
+\end{itemize}
+
+\end{document}
