@@ -23,10 +23,11 @@
 \usepackage{enumitem}
 \setlist[itemize]{itemsep=2pt,topsep=4pt}
 
+\setlength{\headheight}{1cm}
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{Hubble Lakehouse --- Rapport}
-\fancyhead[R]{Efrei \textbar{} Big Data Framework}
+\fancyhead[R]{\includegraphics[height=0.7cm]{logo.png}}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
@@ -40,7 +41,9 @@
 
 \begin{titlepage}
     \centering
-    \vspace*{1.5cm}
+    \vspace*{1cm}
+
+    \includegraphics[width=4cm]{logo.png}\\[1cm]
 
     {\Large \textbf{EFREI Paris}}\\[0.3cm]
     {\large Formation \textit{Big Data Framework}}\\[3cm]
@@ -61,6 +64,10 @@
 \end{titlepage}
 
 \tableofcontents
+\newpage
+
+\paragraph{Note méthodologique.} Ce rapport a d'abord été rédigé en brouillon par nous-mêmes. Une IA nous a aidé à nous corriger les fautes et reformuler certaines phrases, sans modifier les justifications ni ajouter de contenu. L'objectif est de gagner du temps de rédaction et de limiter les fautes.
+
 \newpage
 
 % ----------- PARTIE 1 -------------
@@ -187,7 +194,7 @@ Quatre datamarts PostgreSQL sont produits, un par profil utilisateur.
 
 \subsection{Restitution}
 
-Les quatre tables PostgreSQL sont exposées par une API REST écrite en Python avec Flask. Chaque datamart correspond à un endpoint dédié, qui retourne les enregistrements au format JSON. L'accès est protégé par jeton JWT : chaque requête doit présenter un token valide dans son en-tête \texttt{Authorization}. Les outils de visualisation et les scripts d'analyse consomment ces endpoints, sans accès direct à la base.
+Les quatre tables PostgreSQL sont exposées par une API REST écrite en Python avec Flask, accessible à l'adresse \href{https://efrei-bigdata-api.valentin-massonniere.ch}{https://efrei-bigdata-api.valentin-massonniere.ch}. Chaque datamart correspond à un endpoint dédié, qui retourne les enregistrements au format JSON. L'accès est protégé par jeton JWT : chaque requête doit présenter un token valide dans son en-tête \texttt{Authorization}. Les outils de visualisation et les scripts d'analyse consomment ces endpoints, sans accès direct à la base.
 
 \newpage
 % ----------- PARTIE 6 -------------
@@ -209,7 +216,7 @@ Chaque couche est idempotente : un retraitement ne crée pas de doublons. Les en
 
 En complément du périmètre commun, Valentin déploie le pipeline sur un VPS personnel. Chaque composant est conteneurisé avec Docker et orchestré par Kubernetes.
 
-Les logs des jobs sont centralisés et consultables depuis le dashboard Airflow, accessible à l'adresse \href{https://efrei-bigdata-airflow.valentin-massonniere.ch}{efrei-bigdata-airflow.valentin-massonniere.ch} (utilisateur \texttt{invit}, mot de passe \texttt{inviter123}). Pour des raisons de sécurité du VPS, ce compte dispose d'un accès en lecture seule et ne peut pas déclencher de DAG manuellement.
+Les logs des jobs sont centralisés et consultables depuis le dashboard Airflow, accessible à l'adresse \href{https://efrei-bigdata-airflow.valentin-massonniere.ch}{https://efrei-bigdata-airflow.valentin-massonniere.ch} (utilisateur \texttt{invit}, mot de passe \texttt{inviter123}). Pour des raisons de sécurité du VPS, ce compte dispose d'un accès en lecture seule et ne peut pas déclencher de DAG manuellement.
 
 \newpage
 % ----------- PARTIE 7 -------------
@@ -339,5 +346,120 @@ Ce document intègre le cahier des charges et sera complété au fil du projet p
     \item les résultats obtenus pour chaque datamart, avec exemples ;
     \item les difficultés rencontrées et les pistes d'amélioration.
 \end{itemize}
+
+\newpage
+% ----------- PARTIE 10 -------------
+\section{Déploiement de l'infrastructure}
+
+Cette section décrit l'état actuel du déploiement bonus sur VPS personnel. Le périmètre couvert à ce stade se limite à Airflow et à l'API de restitution. Les composants Hadoop, Hive, Spark et PostgreSQL applicatifs seront ajoutés plus tard.
+
+\subsection{Vue d'ensemble}
+
+Le pipeline est déployé sur un cluster Kubernetes hébergé sur un VPS personnel, dans le namespace \texttt{efrei-big-data}. Trois composants tournent à ce stade :
+
+\begin{itemize}
+    \item \textbf{PostgreSQL 16} : sert de backend de métadonnées pour Airflow et hébergera plus tard le metastore Hive et les datamarts Gold.
+    \item \textbf{Airflow 3.0} : orchestrateur, en mode \textit{standalone}, executor \texttt{LocalExecutor}.
+    \item \textbf{API Flask} : point d'entrée de restitution, qui exposera les datamarts une fois ces derniers produits.
+\end{itemize}
+
+\subsection{Conteneurisation}
+
+Chaque composant est conteneurisé. Deux images sont construites depuis le dépôt :
+
+\begin{itemize}
+    \item \texttt{infra/Dockerfile.airflow} : image Airflow avec un \textit{entrypoint} qui génère le fichier de mots de passe \texttt{simple\_auth\_manager\_passwords.json.generated} à partir des variables d'environnement, puis lance \texttt{airflow standalone} ;
+    \item \texttt{infra/Dockerfile.api} : image Python qui exécute l'API Flask via Gunicorn.
+\end{itemize}
+
+PostgreSQL utilise l'image officielle \texttt{postgres:16}, sans build custom.
+
+\subsection{Manifestes Kubernetes}
+
+Le fichier \texttt{infra/k8s.yaml} regroupe l'ensemble des ressources : namespace, \texttt{PersistentVolumeClaim} pour les données Postgres, \texttt{ConfigMap} d'initialisation de la base, trois \texttt{Deployment}, trois \texttt{Service}, deux \texttt{Ingress}, et un \texttt{Secret} \texttt{efrei-secrets} créé dynamiquement à chaque déploiement par la pipeline CI/CD.
+
+L'utilisateur \texttt{airflow} de la base PostgreSQL est créé au premier démarrage par un script SQL injecté via \texttt{ConfigMap}.
+
+\subsection{Authentification Airflow}
+
+Airflow est configuré avec son \textit{simple auth manager}. Deux comptes sont définis dans la variable \texttt{AIRFLOW\_\_CORE\_\_SIMPLE\_AUTH\_MANAGER\_USERS} :
+
+\begin{itemize}
+    \item \texttt{admin} (rôle \texttt{admin}) : accès complet, utilisé pour la maintenance ;
+    \item \texttt{invit} (rôle \texttt{viewer}) : accès en lecture seule pour le jury, sans possibilité de déclencher de DAG.
+\end{itemize}
+
+Les mots de passe sont fournis par variables d'environnement, elles-mêmes injectées depuis le \texttt{Secret} Kubernetes.
+
+\subsection{Exposition HTTPS}
+
+Deux \texttt{Ingress} routent le trafic externe vers les services internes :
+
+\begin{itemize}
+    \item \texttt{efrei-bigdata-airflow.valentin-massonniere.ch} \(\rightarrow\) Airflow ;
+    \item \texttt{efrei-bigdata-api.valentin-massonniere.ch} \(\rightarrow\) API Flask.
+\end{itemize}
+
+Les certificats TLS sont émis automatiquement par \textit{cert-manager} avec l'issuer \texttt{letsencrypt-prod}, via une simple annotation sur chaque \texttt{Ingress}. Aucun renouvellement manuel n'est nécessaire.
+
+\subsection{Pipeline CI/CD}
+
+Le dépôt est miroiré sur GitHub et GitLab. La pipeline GitLab (\texttt{.gitlab-ci.yml}) déclenche à chaque push sur \texttt{main} :
+
+\begin{enumerate}
+    \item un job \textit{build-airflow} qui construit l'image Airflow et la pousse sur le registry GitLab ;
+    \item un job \textit{build-api} qui fait de même pour l'image API ;
+    \item un job \textit{deploy} qui se connecte au cluster (via \texttt{kubeconfig} stocké en variable CI/CD), recrée les \texttt{Secret} Kubernetes à partir des variables protégées, applique \texttt{infra/k8s.yaml} et redémarre les déploiements.
+\end{enumerate}
+
+Les variables sensibles (mots de passe, kubeconfig, identifiants registry) sont stockées comme variables CI/CD protégées GitLab et ne quittent jamais le runner.
+
+\subsection{Prochaines étapes}
+
+Les prochaines technologies seront ajoutés dans les itérations suivantes : HDFS et YARN (single-node), Hive (Metastore et HiveServer2), client Spark intégré à l'image Airflow, et exposition des UI HDFS et YARN sur deux \texttt{Ingress} dédiés pour les captures du livrable.
+
+\subsection{Difficultés}
+
+Le déploiement de Hadoop, Hive et Spark sur Kubernetes représente la principale difficulté technique pour la suite du projet. Valentin, qui prend en charge la partie infrastructure, n'a jamais réalisé ce type de déploiement et la conteneurisation de ces écosystèmes avec Kubernetes.
+La construction de ces fichiers s'appuiera sur la documentation et sur l'usage de l'IA pour comprendre les choix de configuration et produire une première version des manifestes, qui sera ensuite vérifiée et adaptée.
+
+\newpage
+\thispagestyle{empty}
+\vspace*{\fill}
+
+\begin{center}
+
+{\large Hubble Lakehouse}\\[0.2cm]
+{\small \textit{Pipeline Big Data pour l'analyse des observations du télescope spatial Hubble}}\\[1.5cm]
+
+\rule{0.5\linewidth}{0.4pt}\\[0.6cm]
+
+{\Large Signatures}\\[2cm]
+
+\begin{minipage}[t]{0.4\linewidth}
+\centering
+\vspace{3cm}
+\rule{\linewidth}{0.4pt}\\[0.3cm]
+{\large Valentin Massonnière}\\[0.1cm]
+{\small Efrei Paris}\\
+{\small \textit{M1 Data Engineering \& AI --- DE3}}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.4\linewidth}
+\centering
+\vspace{3cm}
+\rule{\linewidth}{0.4pt}\\[0.3cm]
+{\large Kevin Heugas}\\[0.1cm]
+{\small Efrei Paris}\\
+{\small \textit{M1 Data Engineering \& AI --- DE3}}
+\end{minipage}
+
+\vspace{3cm}
+
+{\small Fait à Paris, le \today.}
+
+\end{center}
+
+\vspace*{\fill}
 
 \end{document}
