@@ -7,14 +7,98 @@ metadata:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: airflow-data-pvc
+  name: postgres-data-pvc
   namespace: efrei-big-data
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: efrei-big-data
+data:
+  init-db.sql: |
+    CREATE DATABASE airflow_metadata;
+    CREATE USER airflow WITH PASSWORD 'airflow';
+    GRANT ALL PRIVILEGES ON DATABASE airflow_metadata TO airflow;
+    \c airflow_metadata
+    GRANT ALL ON SCHEMA public TO airflow;
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: efrei-big-data
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: efrei-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-data-pvc
+        - name: init-scripts
+          configMap:
+            name: postgres-init
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: efrei-big-data
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
 
 ---
 apiVersion: apps/v1
@@ -42,9 +126,9 @@ spec:
           imagePullPolicy: Always
           env:
             - name: AIRFLOW__CORE__EXECUTOR
-              value: "SequentialExecutor"
+              value: "LocalExecutor"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
-              value: "sqlite:////opt/airflow/airflow.db"
+              value: "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow_metadata"
             - name: AIRFLOW__CORE__LOAD_EXAMPLES
               value: "false"
             - name: AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS
@@ -62,15 +146,9 @@ spec:
           ports:
             - containerPort: 8080
           volumeMounts:
-            - name: airflow-db
-              mountPath: /opt/airflow/airflow.db
-              subPath: airflow.db
             - name: airflow-logs
               mountPath: /opt/airflow/logs
       volumes:
-        - name: airflow-db
-          persistentVolumeClaim:
-            claimName: airflow-data-pvc
         - name: airflow-logs
           emptyDir: {}
 
@@ -93,7 +171,13 @@ kind: Ingress
 metadata:
   name: airflow-ingress
   namespace: efrei-big-data
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
+  tls:
+    - hosts:
+        - efrei-bigdata-airflow.valentin-massonniere.ch
+      secretName: airflow-tls
   rules:
     - host: efrei-bigdata-airflow.valentin-massonniere.ch
       http:
@@ -156,7 +240,13 @@ kind: Ingress
 metadata:
   name: api-ingress
   namespace: efrei-big-data
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
+  tls:
+    - hosts:
+        - efrei-bigdata-api.valentin-massonniere.ch
+      secretName: api-tls
   rules:
     - host: efrei-bigdata-api.valentin-massonniere.ch
       http:
