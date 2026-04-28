@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir psycopg2-binary pyspark==3.5.1 apache-airflow-pro
 
 COPY --chown=airflow:root dags/ /opt/airflow/dags/
 COPY --chown=airflow:root spark/ /opt/airflow/spark/
+COPY --chown=airflow:root ingestion/ /opt/airflow/ingestion/
 COPY --chown=airflow:root infra/airflow/entrypoint.sh /entrypoint.sh
 
 USER root

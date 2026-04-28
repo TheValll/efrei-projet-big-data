@@ -24,11 +24,55 @@ metadata:
   namespace: efrei-big-data
 data:
   init-db.sql: |
-    CREATE DATABASE airflow_metadata;
     CREATE USER airflow WITH PASSWORD 'airflow';
-    GRANT ALL PRIVILEGES ON DATABASE airflow_metadata TO airflow;
+    CREATE DATABASE airflow_metadata OWNER airflow;
+    CREATE DATABASE nasa_db_raw OWNER airflow;
+
     \c airflow_metadata
     GRANT ALL ON SCHEMA public TO airflow;
+
+    \c nasa_db_raw
+    GRANT ALL ON SCHEMA public TO airflow;
+
+    CREATE TABLE IF NOT EXISTS public.mast (
+        dataproduct_type      TEXT,
+        calib_level           TEXT,
+        obs_collection        TEXT,
+        obs_id                TEXT,
+        target_name           TEXT,
+        s_ra                  TEXT,
+        s_dec                 TEXT,
+        t_min                 TEXT,
+        t_max                 TEXT,
+        t_exptime             TEXT,
+        wavelength_region     TEXT,
+        filters               TEXT,
+        em_min                TEXT,
+        em_max                TEXT,
+        target_classification TEXT,
+        obs_title             TEXT,
+        t_obs_release         TEXT,
+        instrument_name       TEXT,
+        proposal_pi           TEXT,
+        proposal_id           TEXT,
+        proposal_type         TEXT,
+        project               TEXT,
+        sequence_number       TEXT,
+        provenance_name       TEXT,
+        s_region              TEXT,
+        "jpegURL"             TEXT,
+        "dataURL"             TEXT,
+        "dataRights"          TEXT,
+        "mtFlag"              TEXT,
+        "srcDen"              TEXT,
+        "intentType"          TEXT,
+        obsid                 TEXT,
+        "objID"               TEXT,
+        wave_min              TEXT,
+        wave_max              TEXT,
+        wave_region           TEXT
+    );
+    ALTER TABLE public.mast OWNER TO airflow;
 
 ---
 apiVersion: apps/v1
@@ -146,6 +190,10 @@ spec:
                 secretKeyRef:
                   name: efrei-secrets
                   key: AIRFLOW_INVIT_PASSWORD
+            - name: NASA_DB_RAW_DSN
+              value: "postgresql://airflow:airflow@postgres:5432/nasa_db_raw"
+            - name: MAST_CSV
+              value: "/opt/airflow/data/mast.csv"
             - name: HDFS_URI
               value: "hdfs://namenode:9000"
             - name: HDFS_USER
@@ -161,9 +209,16 @@ spec:
           volumeMounts:
             - name: airflow-logs
               mountPath: /opt/airflow/logs
+            - name: mast-csv
+              mountPath: /opt/airflow/data
+              readOnly: true
       volumes:
         - name: airflow-logs
           emptyDir: {}
+        - name: mast-csv
+          hostPath:
+            path: /opt/efrei/data
+            type: DirectoryOrCreate
 
 ---
 apiVersion: v1
@@ -228,7 +283,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: PYTHONUNBUFFERED
-              value: "1
+              value: "1"
           ports:
             - containerPort: 5000
           readinessProbe:
