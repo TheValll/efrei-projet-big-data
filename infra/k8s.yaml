@@ -503,6 +503,7 @@ spec:
       labels:
         app: spark-master
     spec:
+      enableServiceLinks: false
       imagePullSecrets:
         - name: regcred
       containers:
@@ -563,6 +564,7 @@ spec:
       labels:
         app: spark-worker
     spec:
+      enableServiceLinks: false
       imagePullSecrets:
         - name: regcred
       containers:
