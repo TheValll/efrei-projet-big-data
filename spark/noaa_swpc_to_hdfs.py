@@ -1,13 +1,3 @@
-"""Spark job: ingest NOAA SWPC measurements into a single deduplicated Parquet on HDFS.
-
-Each NOAA endpoint returns an array of measurements; we flatten one row per
-measurement, key on (endpoint, event_time), merge with the existing Parquet
-table, dedup keeping the latest ingested_at, and atomically overwrite the
-target with a single coalesced part-file.
-
-Submitted by the `noaa_swpc_to_hdfs` Airflow DAG via SparkSubmitOperator.
-"""
-
 import argparse
 import json
 from datetime import datetime, timezone

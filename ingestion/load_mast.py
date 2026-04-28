@@ -1,10 +1,3 @@
-"""First-start loader: COPY the MAST CSV into public.mast if the table is empty.
-
-The MAST export prefixes the file with comment lines starting with '#'
-(human-readable column names + datatypes) before the real CSV header,
-so we skip those before handing the stream to Postgres COPY.
-"""
-
 import os
 import sys
 

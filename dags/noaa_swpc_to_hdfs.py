@@ -1,9 +1,4 @@
-"""Submit the NOAA SWPC ingest Spark job every 10 minutes.
-
-The actual logic (fetch + Parquet + HDFS write) lives in
-spark/noaa_swpc_to_hdfs.py and is run on the standalone Spark cluster
-(spark-master + spark-worker) via SparkSubmitOperator.
-"""
+"""Submit the NOAA SWPC ingest Spark job every 10 minutes."""
 
 from datetime import datetime
 
