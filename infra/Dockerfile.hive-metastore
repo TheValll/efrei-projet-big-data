@@ -1,0 +1,9 @@
+FROM apache/hive:4.0.0
+
+USER root
+
+ARG POSTGRES_JDBC_VERSION=42.7.4
+ADD https://jdbc.postgresql.org/download/postgresql-${POSTGRES_JDBC_VERSION}.jar /opt/hive/lib/postgresql.jar
+RUN chmod 644 /opt/hive/lib/postgresql.jar
+
+USER hive

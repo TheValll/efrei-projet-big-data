@@ -1,6 +1,12 @@
 CREATE USER airflow WITH PASSWORD 'airflow';
 CREATE DATABASE airflow_metadata OWNER airflow;
 CREATE DATABASE nasa_db_raw OWNER airflow;
+CREATE DATABASE datamart OWNER airflow;
+
+CREATE USER hive WITH PASSWORD 'hive';
+CREATE DATABASE hive_metastore OWNER hive;
+\c hive_metastore
+GRANT ALL ON SCHEMA public TO hive;
 
 \c airflow_metadata
 GRANT ALL ON SCHEMA public TO airflow;
