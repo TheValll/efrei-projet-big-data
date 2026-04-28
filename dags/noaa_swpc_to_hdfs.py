@@ -1,5 +1,6 @@
 """Submit the NOAA SWPC ingest Spark job every 10 minutes."""
 
+import os
 from datetime import datetime
 
 from airflow.decorators import dag
@@ -25,6 +26,10 @@ def noaa_swpc_to_hdfs():
         application_args=[
             "--logical-date", "{{ logical_date.isoformat() }}",
         ],
+        conf={
+            "spark.driver.host": os.environ.get("SPARK_LOCAL_IP", "0.0.0.0"),
+            "spark.driver.bindAddress": "0.0.0.0",
+        },
         verbose=False,
     )
 
