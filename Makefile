@@ -1,12 +1,14 @@
-.PHONY: help install api pods logs push
+.PHONY: help api airflow pods logs push
 
 NAMESPACE = efrei-big-data
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##.*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install Python dependencies for the API
-	pip install -r api/requirements.txt
+api: ## Build and run the API in Docker on port 5000
+	docker build -f infra/Dockerfile.api -t efrei-api:local .
+	docker run --rm -it --env-file .env -p 5000:5000 --name efrei-api efrei-api:local
 
-api: ## Run the Flask API locally on port 5000
-	python api/api.py
+airflow: ## Build and run Airflow standalone in Docker on port 8080
+	docker build -f infra/Dockerfile.airflow -t efrei-airflow:local .
+	docker run --rm -it --env-file .env -p 8080:8080 --name efrei-airflow efrei-airflow:local

@@ -15,14 +15,12 @@ The MAST CSV export is not versioned (size). Download it from [Google Drive](htt
 
 ## Local setup
 
-Copy `.env.example` to `.env` and fill in the values.
+Copy `.env.example` to `.env` and fill in the values, then build and run the Docker images:
 
 ```bash
-make install
-make api
+make api      # Flask API on http://localhost:5000
+make airflow  # Airflow standalone on http://localhost:8080
 ```
-
-The Flask API then listens on <http://localhost:5000>.
 
 ## Structure
 
