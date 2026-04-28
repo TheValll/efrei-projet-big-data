@@ -118,6 +118,7 @@ spec:
       labels:
         app: airflow
     spec:
+      enableServiceLinks: false
       imagePullSecrets:
         - name: regcred
       containers:
@@ -125,6 +126,8 @@ spec:
           image: registry.gitlab.com/val-team/public/efrei-big-data/airflow:latest
           imagePullPolicy: Always
           env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
             - name: AIRFLOW__CORE__EXECUTOR
               value: "LocalExecutor"
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
@@ -216,12 +219,16 @@ spec:
       labels:
         app: api
     spec:
+      enableServiceLinks: false
       imagePullSecrets:
         - name: regcred
       containers:
         - name: api
           image: registry.gitlab.com/val-team/public/efrei-big-data/api:latest
           imagePullPolicy: Always
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1
           ports:
             - containerPort: 5000
           readinessProbe:
