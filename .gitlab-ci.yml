@@ -7,6 +7,8 @@ variables:
   IMAGE_AIRFLOW_LATEST: $CI_REGISTRY_IMAGE/airflow:latest
   IMAGE_API: $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA
   IMAGE_API_LATEST: $CI_REGISTRY_IMAGE/api:latest
+  IMAGE_SPARK: $CI_REGISTRY_IMAGE/spark:$CI_COMMIT_SHORT_SHA
+  IMAGE_SPARK_LATEST: $CI_REGISTRY_IMAGE/spark:latest
 
 build-airflow:
   stage: build
@@ -38,6 +40,21 @@ build-api:
     - main
     - master
 
+build-spark:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -f infra/Dockerfile.spark -t $IMAGE_SPARK -t $IMAGE_SPARK_LATEST .
+    - docker push $IMAGE_SPARK
+    - docker push $IMAGE_SPARK_LATEST
+  only:
+    - main
+    - master
+
 deploy:
   stage: deploy
   image: dtzar/helm-kubectl:latest
@@ -59,6 +76,10 @@ deploy:
     - kubectl rollout restart deployment/postgres -n efrei-big-data
     - kubectl rollout restart deployment/airflow -n efrei-big-data
     - kubectl rollout restart deployment/api -n efrei-big-data
+    - kubectl rollout restart deployment/namenode -n efrei-big-data
+    - kubectl rollout restart deployment/datanode -n efrei-big-data
+    - kubectl rollout restart deployment/spark-master -n efrei-big-data
+    - kubectl rollout restart deployment/spark-worker -n efrei-big-data
   only:
     - main
     - master

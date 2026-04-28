@@ -1,0 +1,126 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    hostname: namenode
+    environment:
+      CLUSTER_NAME: bigdata-local
+    env_file:
+      - ./infra/hadoop/hadoop.env
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    volumes:
+      - hadoop-namenode:/hadoop/dfs/name
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9870 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    hostname: datanode
+    depends_on:
+      namenode:
+        condition: service_healthy
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    env_file:
+      - ./infra/hadoop/hadoop.env
+    ports:
+      - "9864:9864"
+    volumes:
+      - hadoop-datanode:/hadoop/dfs/data
+
+  spark-master:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.spark
+    hostname: spark-master
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - 0.0.0.0
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    volumes:
+      - ./spark:/opt/spark-jobs:ro
+
+  spark-worker:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.spark
+    depends_on:
+      - spark-master
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - --memory
+      - 1G
+      - --cores
+      - "1"
+      - spark://spark-master:7077
+    volumes:
+      - ./spark:/opt/spark-jobs:ro
+
+  airflow:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      namenode:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow_metadata
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: admin:admin,invit:viewer
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+      AIRFLOW_INVIT_PASSWORD: ${AIRFLOW_INVIT_PASSWORD:-invit}
+      NASA_DB_RAW_DSN: postgresql://airflow:airflow@postgres:5432/nasa_db_raw
+      MAST_CSV: /opt/airflow/ingestion/MAST_2026-04-27T1744.csv
+      HDFS_URI: hdfs://namenode:9000
+      HDFS_USER: root
+      AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type":"spark","host":"spark://spark-master","port":7077}'
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ingestion:/opt/airflow/ingestion:ro
+      - ./spark:/opt/airflow/spark:ro
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+
+volumes:
+  postgres-data:
+  hadoop-namenode:
+  hadoop-datanode:

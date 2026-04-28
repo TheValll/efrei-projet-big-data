@@ -143,6 +143,16 @@ spec:
                 secretKeyRef:
                   name: efrei-secrets
                   key: AIRFLOW_INVIT_PASSWORD
+            - name: HDFS_URI
+              value: "hdfs://namenode:9000"
+            - name: HDFS_USER
+              value: "root"
+            - name: AIRFLOW_CONN_SPARK_DEFAULT
+              value: '{"conn_type":"spark","host":"spark://spark-master","port":7077}'
+            - name: SPARK_LOCAL_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           ports:
             - containerPort: 8080
           volumeMounts:
@@ -258,3 +268,255 @@ spec:
                 name: api
                 port:
                   number: 80
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hadoop-config
+  namespace: efrei-big-data
+data:
+  CORE_CONF_fs_defaultFS: "hdfs://namenode:9000"
+  CORE_CONF_hadoop_http_staticuser_user: "root"
+  CORE_CONF_hadoop_proxyuser_root_hosts: "*"
+  CORE_CONF_hadoop_proxyuser_root_groups: "*"
+  CORE_CONF_io_compression_codecs: "org.apache.hadoop.io.compress.SnappyCodec"
+  HDFS_CONF_dfs_webhdfs_enabled: "true"
+  HDFS_CONF_dfs_permissions_enabled: "false"
+  HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
+  HDFS_CONF_dfs_replication: "1"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: namenode-data-pvc
+  namespace: efrei-big-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: datanode-data-pvc
+  namespace: efrei-big-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: namenode
+  namespace: efrei-big-data
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: namenode
+  template:
+    metadata:
+      labels:
+        app: namenode
+    spec:
+      containers:
+        - name: namenode
+          image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+          env:
+            - name: CLUSTER_NAME
+              value: "bigdata-vps"
+          envFrom:
+            - configMapRef:
+                name: hadoop-config
+          ports:
+            - containerPort: 9870
+            - containerPort: 9000
+          volumeMounts:
+            - name: namenode-storage
+              mountPath: /hadoop/dfs/name
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9870
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: namenode-storage
+          persistentVolumeClaim:
+            claimName: namenode-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: namenode
+  namespace: efrei-big-data
+spec:
+  selector:
+    app: namenode
+  ports:
+    - name: rpc
+      port: 9000
+      targetPort: 9000
+    - name: ui
+      port: 9870
+      targetPort: 9870
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: datanode
+  namespace: efrei-big-data
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: datanode
+  template:
+    metadata:
+      labels:
+        app: datanode
+    spec:
+      containers:
+        - name: datanode
+          image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+          env:
+            - name: SERVICE_PRECONDITION
+              value: "namenode:9870"
+          envFrom:
+            - configMapRef:
+                name: hadoop-config
+          ports:
+            - containerPort: 9864
+          volumeMounts:
+            - name: datanode-storage
+              mountPath: /hadoop/dfs/data
+      volumes:
+        - name: datanode-storage
+          persistentVolumeClaim:
+            claimName: datanode-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: datanode
+  namespace: efrei-big-data
+spec:
+  selector:
+    app: datanode
+  ports:
+    - port: 9864
+      targetPort: 9864
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-master
+  namespace: efrei-big-data
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: spark-master
+  template:
+    metadata:
+      labels:
+        app: spark-master
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: spark-master
+          image: registry.gitlab.com/val-team/public/efrei-big-data/spark:latest
+          imagePullPolicy: Always
+          command:
+            - /opt/spark/bin/spark-class
+            - org.apache.spark.deploy.master.Master
+            - --host
+            - 0.0.0.0
+          env:
+            - name: SPARK_LOCAL_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - containerPort: 7077
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 7077
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-master
+  namespace: efrei-big-data
+spec:
+  selector:
+    app: spark-master
+  ports:
+    - name: rpc
+      port: 7077
+      targetPort: 7077
+    - name: ui
+      port: 8080
+      targetPort: 8080
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-worker
+  namespace: efrei-big-data
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: spark-worker
+  template:
+    metadata:
+      labels:
+        app: spark-worker
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: spark-worker
+          image: registry.gitlab.com/val-team/public/efrei-big-data/spark:latest
+          imagePullPolicy: Always
+          command:
+            - /opt/spark/bin/spark-class
+            - org.apache.spark.deploy.worker.Worker
+            - --memory
+            - 1G
+            - --cores
+            - "1"
+            - spark://spark-master:7077
+          env:
+            - name: SPARK_LOCAL_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP

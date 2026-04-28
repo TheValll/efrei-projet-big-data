@@ -9,4 +9,8 @@ if [ ! -f "$PASSWORD_FILE" ]; then
 EOF
 fi
 
+if [ -n "${NASA_DB_RAW_DSN}" ] && [ -f /opt/airflow/ingestion/load_mast.py ]; then
+    python /opt/airflow/ingestion/load_mast.py
+fi
+
 exec airflow standalone

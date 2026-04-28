@@ -1,0 +1,37 @@
+"""Submit the NOAA SWPC ingest Spark job every 10 minutes.
+
+The actual logic (fetch + Parquet + HDFS write) lives in
+spark/noaa_swpc_to_hdfs.py and is run on the standalone Spark cluster
+(spark-master + spark-worker) via SparkSubmitOperator.
+"""
+
+from datetime import datetime
+
+from airflow.decorators import dag
+from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+
+SPARK_APP = "/opt/airflow/spark/noaa_swpc_to_hdfs.py"
+
+
+@dag(
+    dag_id="noaa_swpc_to_hdfs",
+    schedule="*/10 * * * *",
+    start_date=datetime(2026, 1, 1),
+    catchup=False,
+    max_active_runs=1,
+    tags=["noaa", "hdfs", "bronze", "spark"],
+)
+def noaa_swpc_to_hdfs():
+    SparkSubmitOperator(
+        task_id="submit_ingest",
+        conn_id="spark_default",
+        application=SPARK_APP,
+        name="noaa_swpc_ingest",
+        application_args=[
+            "--logical-date", "{{ logical_date.isoformat() }}",
+        ],
+        verbose=False,
+    )
+
+
+noaa_swpc_to_hdfs()

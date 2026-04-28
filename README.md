@@ -2,11 +2,11 @@
 
 Efrei --- Big Data Framework, by Valentin Massonnière and Kevin Heugas.
 
-Medallion Lakehouse pipeline (Bronze, Silver, Gold) that crosses the Hubble Space Telescope observation archive (MAST, ~500,000 rows) with NOAA SWPC space weather data, and feeds four PostgreSQL datamarts exposed through a Flask API protected by JWT.
+Medallion Lakehouse pipeline (Bronze, Silver, Gold) crossing the Hubble Space Telescope archive (MAST, ~500,000 rows) with NOAA SWPC space weather data, exposed through a Flask API protected by JWT.
 
 ## Endpoints
 
-- Airflow: <https://efrei-bigdata-airflow.valentin-massonniere.ch> (invit/`inviter123`, read only)
+- Airflow: <https://efrei-bigdata-airflow.valentin-massonniere.ch>
 - API: <https://efrei-bigdata-api.valentin-massonniere.ch>
 
 ## Data sources
@@ -15,21 +15,20 @@ The MAST CSV export is not versioned (size). Download it from [Google Drive](htt
 
 ## Local setup
 
-Copy `.env.example` to `.env` and fill in the values, then build and run the Docker images:
+Copy `.env.example` to `.env`, then:
 
 ```bash
-make api      # Flask API on http://localhost:5000
-make airflow  # Airflow standalone on http://localhost:8080
+make up    # build and start the full stack
+make down  # stop everything
+make api   # tail the API logs
 ```
 
-## Structure
+Once up:
 
-```
-api/         Flask API (datamarts via JWT)
-dags/        Airflow DAGs
-infra/       Dockerfiles and Kubernetes manifests
-docs/        LaTeX report
-```
+- Airflow UI — <http://localhost:8080>
+- API — <http://localhost:5000>
+- HDFS NameNode UI — <http://localhost:9870>
+- Spark master UI — <http://localhost:8081>
 
 ## Report
 
