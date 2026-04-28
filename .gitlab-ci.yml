@@ -9,6 +9,8 @@ variables:
   IMAGE_API_LATEST: $CI_REGISTRY_IMAGE/api:latest
   IMAGE_SPARK: $CI_REGISTRY_IMAGE/spark:$CI_COMMIT_SHORT_SHA
   IMAGE_SPARK_LATEST: $CI_REGISTRY_IMAGE/spark:latest
+  IMAGE_HIVE: $CI_REGISTRY_IMAGE/hive-metastore:$CI_COMMIT_SHORT_SHA
+  IMAGE_HIVE_LATEST: $CI_REGISTRY_IMAGE/hive-metastore:latest
 
 build-airflow:
   stage: build
@@ -55,6 +57,21 @@ build-spark:
     - main
     - master
 
+build-hive-metastore:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -f infra/Dockerfile.hive-metastore -t $IMAGE_HIVE -t $IMAGE_HIVE_LATEST .
+    - docker push $IMAGE_HIVE
+    - docker push $IMAGE_HIVE_LATEST
+  only:
+    - main
+    - master
+
 deploy:
   stage: deploy
   image: dtzar/helm-kubectl:latest
@@ -80,6 +97,7 @@ deploy:
     - kubectl rollout restart deployment/datanode -n efrei-big-data
     - kubectl rollout restart deployment/spark-master -n efrei-big-data
     - kubectl rollout restart deployment/spark-worker -n efrei-big-data
+    - kubectl rollout restart deployment/hive-metastore -n efrei-big-data
   only:
     - main
     - master

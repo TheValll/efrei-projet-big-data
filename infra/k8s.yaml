@@ -27,6 +27,12 @@ data:
     CREATE USER airflow WITH PASSWORD 'airflow';
     CREATE DATABASE airflow_metadata OWNER airflow;
     CREATE DATABASE nasa_db_raw OWNER airflow;
+    CREATE DATABASE datamart OWNER airflow;
+
+    CREATE USER hive WITH PASSWORD 'hive';
+    CREATE DATABASE hive_metastore OWNER hive;
+    \c hive_metastore
+    GRANT ALL ON SCHEMA public TO hive;
 
     \c airflow_metadata
     GRANT ALL ON SCHEMA public TO airflow;
@@ -484,6 +490,64 @@ spec:
   ports:
     - port: 9864
       targetPort: 9864
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hive-metastore
+  namespace: efrei-big-data
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hive-metastore
+  template:
+    metadata:
+      labels:
+        app: hive-metastore
+    spec:
+      enableServiceLinks: false
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: hive-metastore
+          image: registry.gitlab.com/val-team/public/efrei-big-data/hive-metastore:latest
+          imagePullPolicy: Always
+          env:
+            - name: SERVICE_NAME
+              value: "metastore"
+            - name: DB_DRIVER
+              value: "postgres"
+            - name: SERVICE_OPTS
+              value: >-
+                -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+                -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/hive_metastore
+                -Djavax.jdo.option.ConnectionUserName=hive
+                -Djavax.jdo.option.ConnectionPassword=hive
+          ports:
+            - containerPort: 9083
+          readinessProbe:
+            tcpSocket:
+              port: 9083
+            initialDelaySeconds: 30
+            periodSeconds: 15
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hive-metastore
+  namespace: efrei-big-data
+spec:
+  selector:
+    app: hive-metastore
+  ports:
+    - protocol: TCP
+      port: 9083
+      targetPort: 9083
 
 ---
 apiVersion: apps/v1
