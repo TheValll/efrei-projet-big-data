@@ -111,6 +111,8 @@ services:
         condition: service_healthy
       spark-master:
         condition: service_started
+      hive-metastore:
+        condition: service_started
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow_metadata
@@ -119,6 +121,8 @@ services:
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
       AIRFLOW_INVIT_PASSWORD: ${AIRFLOW_INVIT_PASSWORD:-invit}
       NASA_DB_RAW_DSN: postgresql://airflow:airflow@postgres:5432/nasa_db_raw
+      DATAMART_DSN: postgresql://airflow:airflow@postgres:5432/datamart
+      HIVE_METASTORE_URI: thrift://hive-metastore:9083
       MAST_CSV: /opt/airflow/ingestion/MAST_2026-04-27T1744.csv
       HDFS_URI: hdfs://namenode:9000
       HDFS_USER: root

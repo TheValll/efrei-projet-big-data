@@ -1,13 +1,3 @@
-"""Silver layer for NOAA solar flare events.
-
-Reads bronze parquet (live + archive endpoints), parses the `record` JSON,
-extracts and types the event timestamps and X-ray class, dedupes on
-(event_start, xray_class), and writes typed parquet to HDFS.
-
-Archive entries store end_time/max_time as HHMM strings relative to the
-begin_time date; live entries store full ISO timestamps. We handle both.
-"""
-
 import argparse
 import sys
 

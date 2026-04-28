@@ -1,5 +1,3 @@
-"""Build the silver NOAA solar flares table from bronze (live + archive)."""
-
 import os
 from datetime import datetime
 

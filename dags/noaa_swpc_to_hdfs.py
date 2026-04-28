@@ -1,5 +1,3 @@
-"""Submit the NOAA SWPC ingest Spark job every 10 minutes."""
-
 import os
 from datetime import datetime
 

@@ -160,9 +160,11 @@ L'architecture suit le patron Médaillon, organisé en trois couches successives
 
 \paragraph{Bronze.} Stockage sur HDFS au format Parquet. Les exports MAST (CSV) et les flux NOAA SWPC (JSON) sont convertis en Parquet sans transformation métier. La couche est immuable et sert de référence en cas de retraitement.
 
-\paragraph{Silver.} Nettoyage et structuration via Apache Spark. Les données sont typées, parsées (filtres, dates MJD), converties au format Parquet, et exposées via Apache Hive.
+\paragraph{Silver.} Nettoyage et structuration via Apache Spark. Les données sont typées, parsées (filtres, dates MJD), dédupliquées, puis écrites au format Parquet sur HDFS. Cette couche reste un \textit{lake} : aucun catalogue n'est exposé à ce stade, les jobs Spark consomment les fichiers Parquet directement.
 
-\paragraph{Gold.} Agrégation et calcul des indicateurs métier. Quatre tables PostgreSQL alimentent les quatre datamarts, une par profil utilisateur. Une API REST développée en Python avec Flask expose ces tables, et l'accès est protégé par jeton JWT.
+\paragraph{Gold.} Agrégation et calcul des indicateurs métier via Spark SQL. Les résultats sont écrits en Parquet sur HDFS et déclarés comme tables externes dans le catalogue \textbf{Apache Hive Metastore}. À partir de ce moment, les quatre datamarts deviennent interrogeables en SQL standard via Spark SQL ou tout client compatible Hive.
+
+\paragraph{Datamarts (matérialisation).} Pour permettre à l'API REST de répondre rapidement sans solliciter Spark à chaque requête, les quatre tables \texttt{gold.*} sont matérialisées dans \textbf{PostgreSQL} via JDBC (une table par profil utilisateur). L'API Flask lit directement Postgres, et l'accès est protégé par jeton JWT.
 
 \newpage
 % ----------- PARTIE 5 -------------
@@ -176,9 +178,11 @@ L'architecture suit le patron Médaillon, organisé en trois couches successives
 
 \subsection{Transformations par couche}
 
-\paragraph{Bronze $\rightarrow$ Silver.} Spark lit les fichiers Parquet bruts et applique le typage des colonnes, le parsing des champs structurés (filtres, polygones, dates MJD vers UTC\dots) et la suppression des colonnes redondantes. Les tables Silver sont stockées au format Parquet et déclarées dans Hive.
+\paragraph{Bronze $\rightarrow$ Silver.} Spark lit les fichiers Parquet bruts et applique le typage des colonnes, le parsing des champs structurés (filtres, polygones, dates MJD vers UTC\dots) et la suppression des colonnes redondantes. Les tables Silver sont écrites en Parquet sur HDFS, sans déclaration dans un catalogue.
 
-\paragraph{Silver $\rightarrow$ Gold.} Spark SQL agrège les tables Silver pour produire les indicateurs métier. Les résultats sont chargés dans PostgreSQL via JDBC.
+\paragraph{Silver $\rightarrow$ Gold.} Spark SQL agrège les tables Silver pour produire les indicateurs métier. Les résultats sont écrits en Parquet sur HDFS et déclarés comme tables externes dans le Hive Metastore.
+
+\paragraph{Gold $\rightarrow$ Datamarts.} Un dernier job Spark SQL, déclenché par un DAG Airflow distinct, lit chaque table \texttt{gold.*} via Hive et la matérialise dans PostgreSQL via JDBC. Cette étape isole la couche analytique (Hive) de la couche de service (Postgres), permettant à l'API de répondre sans dépendance à Spark.
 
 \subsection{Datamarts}
 

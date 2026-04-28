@@ -1,5 +1,3 @@
-"""One-shot backfill of NOAA GOES X-ray flare archives (2010-2017)."""
-
 import os
 from datetime import datetime
 

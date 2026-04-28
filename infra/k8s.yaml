@@ -198,6 +198,10 @@ spec:
                   key: AIRFLOW_INVIT_PASSWORD
             - name: NASA_DB_RAW_DSN
               value: "postgresql://airflow:airflow@postgres:5432/nasa_db_raw"
+            - name: DATAMART_DSN
+              value: "postgresql://airflow:airflow@postgres:5432/datamart"
+            - name: HIVE_METASTORE_URI
+              value: "thrift://hive-metastore:9083"
             - name: MAST_CSV
               value: "/opt/airflow/data/mast.csv"
             - name: HDFS_URI
