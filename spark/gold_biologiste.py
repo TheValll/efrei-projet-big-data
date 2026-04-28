@@ -31,8 +31,10 @@ def main() -> int:
 
         spark.sql("CREATE DATABASE IF NOT EXISTS silver")
         spark.sql("CREATE DATABASE IF NOT EXISTS gold")
-        spark.sql(f"CREATE TABLE IF NOT EXISTS silver.mast USING PARQUET LOCATION '{mast_path}'")
-        spark.sql(f"CREATE TABLE IF NOT EXISTS silver.noaa_flares USING PARQUET LOCATION '{noaa_path}'")
+        if not spark.catalog.tableExists("silver.mast"):
+            spark.sql(f"CREATE TABLE silver.mast USING PARQUET LOCATION '{mast_path}'")
+        if not spark.catalog.tableExists("silver.noaa_flares"):
+            spark.sql(f"CREATE TABLE silver.noaa_flares USING PARQUET LOCATION '{noaa_path}'")
 
         gold = spark.sql("""
             WITH joined AS (

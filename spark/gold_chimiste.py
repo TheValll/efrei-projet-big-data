@@ -45,11 +45,8 @@ def main() -> int:
 
         spark.sql("CREATE DATABASE IF NOT EXISTS silver")
         spark.sql("CREATE DATABASE IF NOT EXISTS gold")
-        spark.sql(f"""
-            CREATE TABLE IF NOT EXISTS silver.mast
-            USING PARQUET
-            LOCATION '{silver_path}'
-        """)
+        if not spark.catalog.tableExists("silver.mast"):
+            spark.sql(f"CREATE TABLE silver.mast USING PARQUET LOCATION '{silver_path}'")
 
         ref = spark.createDataFrame(FILTER_EMISSION, ["filter_code", "emission_line"])
 
