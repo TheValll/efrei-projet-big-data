@@ -20,7 +20,6 @@ Copy `.env.example` to `.env`, then:
 ```bash
 make up    # build and start the full stack
 make down  # stop everything
-make api   # tail the API logs
 ```
 
 Once up:
