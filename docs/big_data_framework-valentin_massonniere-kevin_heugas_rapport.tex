@@ -133,6 +133,8 @@ Le projet ne couvre pas :
 
 MAST est l'archive publique des observations Hubble, accessible via le \href{https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html}{portail web} du STScI. Les métadonnées sont exportées au format CSV. Le fichier utilisé contient environ 500\,000 lignes, décrites par le schéma CAOM (\textit{Common Archive Observation Model}).
 
+Pour répondre à l'obligation pédagogique d'avoir une base de données en source, le fichier CSV est chargé tel quel dans une table PostgreSQL dédiée au démarrage du projet. C'est cette table qui est ensuite consommée par le pipeline d'ingestion vers Bronze, et non le fichier CSV brut.
+
 \subsection{Source 2 --- NOAA SWPC}
 
 NOAA SWPC publie en quasi-temps réel les indicateurs de météo spatiale : vent solaire, flux X-ray, indice planétaire Kp, éruptions solaires. Les données sont disponibles au format JSON sur des endpoints HTTP (\href{https://services.swpc.noaa.gov/json/}{services.swpc.noaa.gov/json/}), la récupération se fait en mode streaming.
@@ -141,6 +143,11 @@ NOAA SWPC publie en quasi-temps réel les indicateurs de météo spatiale : vent
 
 MAST fournit un historique statique traité en batch. NOAA SWPC fournit un flux temps réel traité en streaming.
 
+\subsection{Synchronisation temporelle des sources}
+
+Les deux sources ne couvrent pas le même horizon temporel. MAST contient des observations qui s'étalent sur plus de trente ans, alors que les endpoints JSON de NOAA SWPC n'exposent que les indicateurs récents (quelques jours à quelques semaines selon le produit). Sans correction, le datamart Biologiste ne pourrait croiser les éruptions solaires qu'avec les rares observations Hubble réalisées pendant la fenêtre courante du flux SWPC.
+
+Pour lever cette limite, les archives historiques de NOAA SWPC sont récupérées en amont puis chargées dans Bronze en complément du flux temps réel. 
 \newpage
 % ----------- PARTIE 4 -------------
 \section{Architecture}
@@ -156,15 +163,18 @@ L'architecture suit le patron Médaillon, organisé en trois couches successives
     \label{fig:archi}
 \end{figure}
 
-\subsection{Couches Médaillon}
+\subsection{Briques techniques}
 
-\paragraph{Bronze.} Stockage sur HDFS au format Parquet. Les exports MAST (CSV) et les flux NOAA SWPC (JSON) sont convertis en Parquet sans transformation métier. La couche est immuable et sert de référence en cas de retraitement.
+L'architecture s'appuie sur les composants suivants :
 
-\paragraph{Silver.} Nettoyage et structuration via Apache Spark. Les données sont typées, parsées (filtres, dates MJD), dédupliquées, puis écrites au format Parquet sur HDFS. Cette couche reste un \textit{lake} : aucun catalogue n'est exposé à ce stade, les jobs Spark consomment les fichiers Parquet directement.
-
-\paragraph{Gold.} Agrégation et calcul des indicateurs métier via Spark SQL. Les résultats sont écrits en Parquet sur HDFS et déclarés comme tables externes dans le catalogue \textbf{Apache Hive Metastore}. À partir de ce moment, les quatre datamarts deviennent interrogeables en SQL standard via Spark SQL ou tout client compatible Hive.
-
-\paragraph{Datamarts (matérialisation).} Pour permettre à l'API REST de répondre rapidement sans solliciter Spark à chaque requête, les quatre tables \texttt{gold.*} sont matérialisées dans \textbf{PostgreSQL} via JDBC (une table par profil utilisateur). L'API Flask lit directement Postgres, et l'accès est protégé par jeton JWT.
+\begin{itemize}
+    \item \textbf{PostgreSQL} : table source MAST en entrée, datamarts métier en sortie ;
+    \item \textbf{HDFS} : stockage distribué des couches Bronze, Silver et Gold au format Parquet ;
+    \item \textbf{Apache Spark} : ingestion NOAA SWPC (batch et streaming) et transformations Bronze $\rightarrow$ Silver $\rightarrow$ Gold ;
+    \item \textbf{Apache Hive Metastore} : catalogue exposant les tables Gold en SQL standard ;
+    \item \textbf{Apache Airflow} : orchestration des DAGs batch et streaming ;
+    \item \textbf{API Flask} : exposition HTTPS des datamarts, protégée par JWT.
+\end{itemize}
 
 \newpage
 % ----------- PARTIE 5 -------------
@@ -172,17 +182,17 @@ L'architecture suit le patron Médaillon, organisé en trois couches successives
 
 \subsection{Ingestion}
 
-\paragraph{MAST.} Le fichier CSV est téléchargé depuis le portail MAST en mode batch. Un job Airflow déclenche un script Python qui dépose le fichier dans HDFS Bronze, après conversion au format Parquet.
+\paragraph{MAST.} La table PostgreSQL source, alimentée au démarrage du projet à partir de l'export CSV MAST, est lue en mode batch. Un job Airflow déclenche un script Python qui extrait son contenu et le dépose dans HDFS Bronze au format Parquet.
 
 \paragraph{NOAA SWPC.} Les endpoints JSON sont interrogés en mini-batch toutes les minutes. Un job Spark Structured Streaming lit les réponses HTTP et les écrit dans HDFS Bronze au format Parquet.
 
 \subsection{Transformations par couche}
 
-\paragraph{Bronze $\rightarrow$ Silver.} Spark lit les fichiers Parquet bruts et applique le typage des colonnes, le parsing des champs structurés (filtres, polygones, dates MJD vers UTC\dots) et la suppression des colonnes redondantes. Les tables Silver sont écrites en Parquet sur HDFS, sans déclaration dans un catalogue.
+\paragraph{Bronze $\rightarrow$ Silver.} Spark lit les fichiers Parquet bruts (MAST issu du dump PostgreSQL, archives et flux temps réel SWPC) et applique le typage des colonnes, le parsing des champs structurés (filtres, polygones, dates MJD vers UTC\dots) et la suppression des colonnes redondantes. Les apports archives et temps réel SWPC sont fusionnés et dédupliqués sur la clé temporelle pour produire une vue continue des indicateurs de météo spatiale. Les tables Silver sont écrites en Parquet sur HDFS, sans déclaration dans un catalogue.
 
-\paragraph{Silver $\rightarrow$ Gold.} Spark SQL agrège les tables Silver pour produire les indicateurs métier. Les résultats sont écrits en Parquet sur HDFS et déclarés comme tables externes dans le Hive Metastore.
+\paragraph{Silver $\rightarrow$ Gold.} Spark SQL agrège les tables Silver pour produire les indicateurs métier des quatre datamarts. Les résultats sont écrits en Parquet sur HDFS et déclarés comme tables externes dans le Hive Metastore.
 
-\paragraph{Gold $\rightarrow$ Datamarts.} Un dernier job Spark SQL, déclenché par un DAG Airflow distinct, lit chaque table \texttt{gold.*} via Hive et la matérialise dans PostgreSQL via JDBC. Cette étape isole la couche analytique (Hive) de la couche de service (Postgres), permettant à l'API de répondre sans dépendance à Spark.
+\paragraph{Gold $\rightarrow$ Datamarts.} Un dernier job Spark SQL, déclenché par un DAG Airflow distinct, lit chaque table \texttt{gold.*} via Hive et la matérialise dans PostgreSQL via JDBC, dans des schémas distincts de celui qui héberge la table MAST source. Cette étape isole la couche analytique (Hive) de la couche de service (Postgres), permettant à l'API de répondre sans dépendance à Spark.
 
 \subsection{Datamarts}
 
@@ -210,7 +220,11 @@ L'export MAST représente environ 500\,000 observations, soit quelques centaines
 
 \subsection{Orchestration}
 
-Apache Airflow pilote l'ensemble du pipeline batch via un DAG quotidien. Le flux NOAA SWPC est porté par un job Spark Structured Streaming permanent.
+Apache Airflow pilote l'ensemble du pipeline via deux DAGs complémentaires.
+
+\paragraph{\texttt{full\_pipeline}.} DAG manuel de backfill, déclenché ponctuellement (notamment au démarrage du projet). Il rétrocharge les archives NOAA SWPC sur la fenêtre voulue, ingère la table MAST source vers Silver, déduplique les apports SWPC, puis enchaîne pour chaque profil utilisateur les étapes Gold et la matérialisation du datamart en PostgreSQL. Le datamart Biologiste dépend des deux Silver (MAST et SWPC) ; les trois autres ne dépendent que de Silver MAST.
+
+\paragraph{\texttt{streaming}.} DAG planifié toutes les dix minutes. Il interroge les endpoints temps réel NOAA SWPC, met à jour Silver SWPC, recalcule la table Gold Biologiste et republie le datamart correspondant en PostgreSQL. C'est ce DAG qui maintient le datamart Biologiste à jour entre deux exécutions complètes du pipeline.
 
 \subsection{Qualité et reprise}
 
@@ -328,16 +342,18 @@ Le projet est mené en binôme. La répartition s'appuie sur les appétences tec
 
 \subsection{Dépôt GitHub}
 
-Le dépôt est hébergé à l'adresse \href{https://github.com/TheValll/efrei-projet-big-data}{github.com/TheValll/efrei-projet-big-data}. Il regroupe l'ensemble des artefacts du projet, organisés comme ceci :
+Le dépôt est hébergé à l'adresse \href{https://github.com/TheValll/efrei-projet-big-data}{github.com/TheValll/efrei-projet-big-data} et miroiré sur GitLab pour la pipeline CI/CD. Il regroupe l'ensemble des artefacts du projet, organisés comme ceci :
 
 \begin{itemize}
-    \item \texttt{ingestion/} : scripts Python d'ingestion MAST et du flux NOAA SWPC ;
-    \item \texttt{spark/} : jobs Spark des transformations Bronze $\rightarrow$ Silver $\rightarrow$ Gold ;
-    \item \texttt{sql/} : scripts SQL de création des datamarts PostgreSQL ;
-    \item \texttt{dags/} : DAG Airflow d'orchestration du pipeline ;
-    \item \texttt{infra/} : Dockerfiles et manifestes Kubernetes pour le déploiement bonus sur VPS ;
-    \item \texttt{docs/} : documentation technique complémentaire ;
-    \item \texttt{README.md} : guide de démarrage et instructions d'exécution.
+    \item \texttt{ingestion/} : export CSV MAST et script Python de chargement vers la table PostgreSQL source ;
+    \item \texttt{spark/} : jobs Spark d'ingestion NOAA SWPC (archives et temps réel) et de transformation Silver $\rightarrow$ Gold $\rightarrow$ datamart pour chaque profil ;
+    \item \texttt{dags/} : DAGs Airflow \texttt{full\_pipeline} (backfill manuel) et \texttt{streaming} (rafraîchissement Biologiste toutes les dix minutes) ;
+    \item \texttt{api/} : API Flask en MVC (\texttt{controllers/}, \texttt{models/}, \texttt{app.py}) exposant les datamarts ;
+    \item \texttt{bruno/} : collection Bruno prête à l'emploi (environnements local et prod, login et endpoints datamarts) ;
+    \item \texttt{infra/} : Dockerfiles (Airflow, API, Spark, Hive Metastore), configurations Hadoop / Hive / Postgres, et manifeste Kubernetes \texttt{k8s.yaml} ;
+    \item \texttt{dumps/} : dump SQL de la base \texttt{datamart} pour rejouer un état local ;
+    \item \texttt{docs/} : rapport \LaTeX{} et documentation technique complémentaire ;
+    \item \texttt{docker-compose.yml}, \texttt{Makefile}, \texttt{.gitlab-ci.yml}, \texttt{README.md} : stack locale, raccourcis (\texttt{make up/down/dump/restore}), pipeline CI/CD et guide de démarrage.
 \end{itemize}
 
 \subsection{Rapport}
@@ -353,79 +369,80 @@ Ce document intègre le cahier des charges et sera complété au fil du projet p
 
 \newpage
 % ----------- PARTIE 10 -------------
-\section{Déploiement de l'infrastructure}
+\section{Explication technique}
 
-Cette section décrit l'état actuel du déploiement bonus sur VPS personnel. Le périmètre couvert à ce stade se limite à Airflow et à l'API de restitution. Les composants Hadoop, Hive, Spark et PostgreSQL applicatifs seront ajoutés plus tard.
+Cette section détaille l'implémentation concrète du projet, depuis la stack locale jusqu'au déploiement en production.
 
-\subsection{Vue d'ensemble}
+\subsection{Stack locale et reproductibilité}
 
-Le pipeline est déployé sur un cluster Kubernetes hébergé sur un VPS personnel, dans le namespace \texttt{efrei-big-data}. Trois composants tournent à ce stade :
+L'intégralité du projet tourne en local via un seul fichier \texttt{docker-compose.yml}, sans dépendance à un cluster ou à un service managé. Huit services y sont déclarés : PostgreSQL, le NameNode et un DataNode HDFS, un service de bootstrap PostgreSQL, le Hive Metastore, un master et un worker Spark, Airflow et l'API Flask.
 
-\begin{itemize}
-    \item \textbf{PostgreSQL 16} : sert de backend de métadonnées pour Airflow et hébergera plus tard le metastore Hive et les datamarts Gold.
-    \item \textbf{Airflow 3.0} : orchestrateur, en mode \textit{standalone}, executor \texttt{LocalExecutor}.
-    \item \textbf{API Flask} : point d'entrée de restitution, qui exposera les datamarts une fois ces derniers produits.
-\end{itemize}
+\paragraph{Images.} Quatre images sont construites à partir du dossier \texttt{infra/} : \texttt{Dockerfile.airflow} (Airflow 3.0 avec client Spark et providers), \texttt{Dockerfile.api} (API Flask servie par Gunicorn), \texttt{Dockerfile.spark} (Spark 3.5 avec connecteurs Postgres et Hadoop) et \texttt{Dockerfile.hive-metastore} (Hive Metastore standalone). Les autres composants utilisent des images publiques : \texttt{postgres:16} et les images Hadoop \texttt{bde2020/hadoop-namenode} et \texttt{bde2020/hadoop-datanode}.
 
-\subsection{Conteneurisation}
+\paragraph{Bootstrap PostgreSQL.} Une instance PostgreSQL unique héberge à la fois les métadonnées Airflow, le metastore Hive, la table source MAST et les datamarts. Au premier démarrage, un service \texttt{postgres-bootstrap} idempotent exécute un script Bash qui crée les rôles \texttt{airflow} et \texttt{hive} ainsi que les quatre bases \texttt{airflow\_metadata}, \texttt{nasa\_db\_raw} (table source MAST), \texttt{datamart} (datamarts Gold) et \texttt{hive\_metastore}. Les autres services attendent sa terminaison via \texttt{depends\_on} avec la condition \texttt{service\_completed\_successfully}.
 
-Chaque composant est conteneurisé. Deux images sont construites depuis le dépôt :
+\paragraph{Persistance et réseau.} Trois volumes nommés (\texttt{postgres-data}, \texttt{hadoop-namenode}, \texttt{hadoop-datanode}) garantissent la persistance des données entre redémarrages. Les services communiquent sur le réseau Docker par défaut, en utilisant les noms de services comme noms d'hôtes (\texttt{postgres}, \texttt{namenode}, \texttt{spark-master}, \texttt{hive-metastore}\dots). Les UIs sont exposées sur l'hôte : Airflow sur \texttt{8080}, Spark sur \texttt{8081}, HDFS NameNode sur \texttt{9870}, API sur \texttt{5000} et PostgreSQL sur \texttt{5432}.
 
-\begin{itemize}
-    \item \texttt{infra/Dockerfile.airflow} : image Airflow avec un \textit{entrypoint} qui génère le fichier de mots de passe \texttt{simple\_auth\_manager\_passwords.json.generated} à partir des variables d'environnement, puis lance \texttt{airflow standalone} ;
-    \item \texttt{infra/Dockerfile.api} : image Python qui exécute l'API Flask via Gunicorn.
-\end{itemize}
+\paragraph{Configuration par variables d'environnement.} Tous les paramètres sensibles (mots de passe Postgres, Airflow, API, secret JWT) sont injectés depuis un fichier \texttt{.env} non versionné. Un \texttt{.env.example} fournit des valeurs de développement par défaut et documente les clés attendues.
 
-PostgreSQL utilise l'image officielle \texttt{postgres:16}, sans build custom.
+\paragraph{Makefile.} Quatre cibles couvrent le cycle de vie local : \texttt{make up} (build et démarrage de la stack), \texttt{make down} (arrêt sans suppression des volumes), \texttt{make dump} (export de la base \texttt{datamart} vers \texttt{dumps/datamart.sql}) et \texttt{make restore} (rejeu d'un dump local).
 
-\subsection{Manifestes Kubernetes}
+\subsection{Jobs Spark}
 
-Le fichier \texttt{infra/k8s.yaml} regroupe l'ensemble des ressources : namespace, \texttt{PersistentVolumeClaim} pour les données Postgres, \texttt{ConfigMap} d'initialisation de la base, trois \texttt{Deployment}, trois \texttt{Service}, deux \texttt{Ingress}, et un \texttt{Secret} \texttt{efrei-secrets} créé dynamiquement à chaque déploiement par la pipeline CI/CD.
+Le dossier \texttt{spark/} regroupe douze scripts PySpark répartis en quatre étapes : ingestion NOAA SWPC vers Bronze, Bronze $\rightarrow$ Silver, Silver $\rightarrow$ Gold et Gold $\rightarrow$ datamart PostgreSQL.
 
-L'utilisateur \texttt{airflow} de la base PostgreSQL est créé au premier démarrage par un script SQL injecté via \texttt{ConfigMap}.
+\paragraph{Ingestion NOAA SWPC vers Bronze.} Deux scripts (live et archive) écrivent dans le même répertoire Bronze sous un schéma unifié (\texttt{endpoint}, \texttt{event\_time}, \texttt{record}, \texttt{ingested\_at}) et appliquent la même stratégie de fusion : union avec l'existant puis déduplication par fenêtre sur \texttt{(endpoint, event\_time)}. Le live interroge quatre endpoints JSON (Kp, X-ray, vent solaire, éruptions) ; l'archive parse les rapports texte annuels GOES X-Ray.
 
-\subsection{Authentification Airflow}
+\paragraph{Bronze $\rightarrow$ Silver.} \texttt{silver\_mast.py} lit la table source via JDBC, type les colonnes et convertit les dates MJD en \texttt{timestamp} UTC. \texttt{silver\_noaa.py} parse le JSON Bronze, extrait la classe X-ray par \textit{regex} et déduplique les apports archives et live sur \texttt{(event\_start, xray\_class)}.
 
-Airflow est configuré avec son \textit{simple auth manager}. Deux comptes sont définis dans la variable \texttt{AIRFLOW\_\_CORE\_\_SIMPLE\_AUTH\_MANAGER\_USERS} :
+\paragraph{Silver $\rightarrow$ Gold.} Les quatre jobs déclarent les tables externes Silver dans Hive, exécutent une requête Spark SQL d'agrégation et publient le résultat comme table externe \texttt{gold.*}. Les spécificités métier :
 
 \begin{itemize}
-    \item \texttt{admin} (rôle \texttt{admin}) : accès complet, utilisé pour la maintenance ;
-    \item \texttt{invit} (rôle \texttt{viewer}) : accès en lecture seule pour le jury, sans possibilité de déclencher de DAG.
+    \item \textbf{Physicien} : binning du ciel par degré (\texttt{FLOOR} sur \texttt{s\_ra}, \texttt{s\_dec}) ;
+    \item \textbf{Chimiste} : jointure avec une table de référence des filtres à bande étroite ;
+    \item \textbf{Biologiste} : jointure d'intervalles temporels MAST $\times$ éruptions, calcul d'un \texttt{risk\_score} dérivé de la classe X-ray ;
+    \item \textbf{Ingénieur} : agrégation mensuelle par instrument sur les observations de calibration, tendance via \texttt{LAG} sur 12 mois.
 \end{itemize}
 
-Les mots de passe sont fournis par variables d'environnement, elles-mêmes injectées depuis le \texttt{Secret} Kubernetes.
+\paragraph{Gold $\rightarrow$ datamart.} Les quatre scripts \texttt{datamart\_*.py} lisent chacun leur table \texttt{gold.*} via Hive et l'écrivent en \texttt{overwrite} dans la base \texttt{datamart} via JDBC.
 
-\subsection{Exposition HTTPS}
+\subsection{API Flask}
 
-Deux \texttt{Ingress} routent le trafic externe vers les services internes :
+L'API est servie par Gunicorn et organisée en MVC : \texttt{app.py} (factory et configuration), \texttt{controllers/} (blueprints HTTP) et \texttt{models/} (requêtes SQL). Trois blueprints sont enregistrés : \texttt{/health}, \texttt{/auth} et \texttt{/datamarts}.
 
-\begin{itemize}
-    \item \texttt{efrei-bigdata-airflow.valentin-massonniere.ch} \(\rightarrow\) Airflow ;
-    \item \texttt{efrei-bigdata-api.valentin-massonniere.ch} \(\rightarrow\) API Flask.
-\end{itemize}
+\paragraph{Authentification.} \texttt{/auth/login} compare les identifiants envoyés à deux comptes (\texttt{admin}, \texttt{viewer}) configurés par variables d'environnement, puis émet un \texttt{access\_token} (1\,h) et un \texttt{refresh\_token} (7\,j) via \textit{flask-jwt-extended}. \texttt{/auth/refresh} renouvelle l'\texttt{access\_token} à partir du refresh.
 
-Les certificats TLS sont émis automatiquement par \textit{cert-manager} avec l'issuer \texttt{letsencrypt-prod}, via une simple annotation sur chaque \texttt{Ingress}. Aucun renouvellement manuel n'est nécessaire.
+\paragraph{Endpoints datamarts.} Quatre routes \texttt{GET /datamarts/\{profil\}} renvoient les lignes du datamart correspondant en JSON. Toutes sont protégées par \texttt{@jwt\_required()} et acceptent une pagination \texttt{limit} / \texttt{offset} ; les profils Biologiste et Ingénieur acceptent en plus un filtre temporel \texttt{from} / \texttt{to}.
 
-\subsection{Pipeline CI/CD}
+\paragraph{Accès PostgreSQL.} Les modèles utilisent un pool psycopg2 (\texttt{DBPool}) initialisé au démarrage avec \texttt{DATAMART\_DSN}, et un curseur \texttt{RealDictCursor} pour sérialiser directement en JSON. Une collection Bruno (\texttt{bruno/}) fournit les requêtes prêtes à l'emploi pour les environnements local et prod.
 
-Le dépôt est miroiré sur GitHub et GitLab. La pipeline GitLab (\texttt{.gitlab-ci.yml}) déclenche à chaque push sur \texttt{main} :
+\subsection{Déploiement Kubernetes}
 
-\begin{enumerate}
-    \item un job \textit{build-airflow} qui construit l'image Airflow et la pousse sur le registry GitLab ;
-    \item un job \textit{build-api} qui fait de même pour l'image API ;
-    \item un job \textit{deploy} qui se connecte au cluster (via \texttt{kubeconfig} stocké en variable CI/CD), recrée les \texttt{Secret} Kubernetes à partir des variables protégées, applique \texttt{infra/k8s.yaml} et redémarre les déploiements.
-\end{enumerate}
+L'ensemble de la stack est redéployé sur un cluster Kubernetes hébergé sur un VPS personnel, dans le namespace \texttt{efrei-big-data}. Le fichier \texttt{infra/k8s.yaml} regroupe l'intégralité des ressources : huit \texttt{Deployment} (Postgres, Airflow, API, NameNode, DataNode, Spark master, Spark worker, Hive Metastore), leurs \texttt{Service} associés, trois \texttt{PersistentVolumeClaim} pour les données persistantes et un \texttt{ConfigMap} d'initialisation Postgres.
 
-Les variables sensibles (mots de passe, kubeconfig, identifiants registry) sont stockées comme variables CI/CD protégées GitLab et ne quittent jamais le runner.
+\paragraph{Images.} Les images custom (Airflow, API, Spark, Hive Metastore) sont tirées depuis le registry GitLab via un \texttt{imagePullSecret regcred}. Postgres et Hadoop utilisent les mêmes images publiques qu'en local.
 
-\subsection{Prochaines étapes}
+\paragraph{Secrets.} Un \texttt{Secret efrei-secrets} centralise les mots de passe Postgres et Airflow ; il est recréé à chaque déploiement par la pipeline CI/CD à partir de variables protégées GitLab.
 
-Les prochaines technologies seront ajoutés dans les itérations suivantes : HDFS et YARN (single-node), Hive (Metastore et HiveServer2), client Spark intégré à l'image Airflow, et exposition des UI HDFS et YARN sur deux \texttt{Ingress} dédiés pour les captures du livrable.
+\paragraph{Exposition HTTPS.} Deux \texttt{Ingress} routent \texttt{efrei-bigdata-airflow.valentin-massonniere.ch} et \texttt{efrei-bigdata-api.valentin-massonniere.ch} vers les services internes. Les certificats TLS sont émis automatiquement par \textit{cert-manager} avec l'issuer \texttt{letsencrypt-prod}.
 
-\subsection{Difficultés}
+\subsection{Pipeline CI/CD GitLab}
 
-Le déploiement de Hadoop, Hive et Spark sur Kubernetes représente la principale difficulté technique pour la suite du projet. Valentin, qui prend en charge la partie infrastructure, n'a jamais réalisé ce type de déploiement et la conteneurisation de ces écosystèmes avec Kubernetes.
-La construction de ces fichiers s'appuiera sur la documentation et sur l'usage de l'IA pour comprendre les choix de configuration et produire une première version des manifestes, qui sera ensuite vérifiée et adaptée.
+Le dépôt est miroiré sur GitLab pour profiter de son CI/CD intégré. Le fichier \texttt{.gitlab-ci.yml} déclare deux étapes (\texttt{build} puis \texttt{deploy}) qui ne s'exécutent que sur \texttt{main}.
+
+\paragraph{Build.} Quatre jobs construisent en parallèle les images Airflow, API, Spark et Hive Metastore avec Docker-in-Docker, puis les poussent sur le registry GitLab sous deux tags : le SHA court du commit et \texttt{latest}.
+
+\paragraph{Deploy.} Un job final utilise l'image \texttt{dtzar/helm-kubectl} pour reconstruire un \texttt{kubeconfig} à partir d'une variable CI/CD encodée en base64, recréer les secrets (\texttt{regcred} pour le registry, \texttt{efrei-secrets} pour les mots de passe), appliquer \texttt{infra/k8s.yaml} et déclencher un \texttt{rollout restart} sur les huit déploiements pour qu'ils retirent les nouvelles images.
+
+\paragraph{Variables sensibles.} Mots de passe (Postgres, Airflow), \texttt{kubeconfig} et identifiants registry sont stockés en variables protégées GitLab et n'apparaissent jamais dans le dépôt ni dans les logs CI/CD.
+
+\newpage
+% ----------- PARTIE 11 -------------
+\section{Visualisation des résultats via Power BI}
+
+\newpage
+% ----------- PARTIE 12 -------------
+\section{Conclusion}
 
 \newpage
 \thispagestyle{empty}
