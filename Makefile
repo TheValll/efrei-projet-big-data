@@ -1,7 +1,6 @@
-.PHONY: help up down restart clean logs api airflow postgres hdfs spark psql hdfs-ls pods push
+.PHONY: help up down restart clean logs api airflow postgres hdfs spark psql hdfs-ls pods push dump restore
 
-NAMESPACE = efrei-big-data
-ENV_FILE = $(shell [ -f .env ] && echo .env || echo .env.example)
+ENV_FILE = $(if $(wildcard .env),.env,.env.example)
 COMPOSE = docker compose --env-file $(ENV_FILE)
 
 help:
@@ -13,3 +12,11 @@ up: ## Build and start the full stack (postgres, hdfs, airflow, api)
 down: ## Stop and remove containers (keeps volumes)
 	$(COMPOSE) down
 
+dump: ## Dump the datamart database to dumps/datamart.sql
+	-mkdir dumps
+	$(COMPOSE) exec -T postgres pg_dump -U postgres -d datamart > dumps/datamart.sql
+	@echo Dumped to dumps/datamart.sql
+
+restore: ## Restore the datamart dump (usage: make restore DUMP=dumps/datamart.sql)
+	$(COMPOSE) exec -T postgres psql -U postgres -d datamart < $(DUMP)
+	@echo Restored from $(DUMP)

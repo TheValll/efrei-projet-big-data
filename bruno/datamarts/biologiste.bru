@@ -1,0 +1,28 @@
+meta {
+  name: Biologiste
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/datamarts/biologiste?from=2015-01-01&to=2015-12-31&limit=50&offset=0
+  body: none
+  auth: bearer
+}
+
+params:query {
+  from: 2015-01-01
+  to: 2015-12-31
+  limit: 50
+  offset: 0
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Contaminated observations (Hubble × solar flares).
+  Optional date filters apply on `t_start` (YYYY-MM-DD).
+  Disable any of the query params to remove the filter.
+}

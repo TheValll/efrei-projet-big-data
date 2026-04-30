@@ -1,0 +1,25 @@
+meta {
+  name: Physicien
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/datamarts/physicien?limit=200&offset=0
+  body: none
+  auth: bearer
+}
+
+params:query {
+  limit: 200
+  offset: 0
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Sky coverage heatmap (1° RA/Dec bins, count + total exposure time).
+  No time dimension --- pagination only.
+}

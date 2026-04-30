@@ -1,1 +1,5 @@
 ingestion/MAST_*.csv
+.env
+bruno/environments/*.bru
+!bruno/environments/example.bru
+dumps/

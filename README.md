@@ -18,16 +18,32 @@ The MAST CSV export is not versioned (size). Download it from [Google Drive](htt
 Copy `.env.example` to `.env`, then:
 
 ```bash
-make up    # build and start the full stack
-make down  # stop everything
+make up       # build and start the full stack
+make down     # stop everything
+make dump     # dump the db local
+make restore  # restore a local dump
 ```
 
 Once up:
 
-- Airflow UI — <http://localhost:8080>
-- API — <http://localhost:5000>
-- HDFS NameNode UI — <http://localhost:9870>
-- Spark master UI — <http://localhost:8081>
+- Airflow UI --- <http://localhost:8080>
+- API --- <http://localhost:5000>
+- HDFS NameNode UI --- <http://localhost:9870>
+- Spark master UI --- <http://localhost:8081>
+- Postgres datamart --- `postgresql://airflow:airflow@localhost:5432/datamart` (PowerBI: server `localhost:5432`, db `datamart`, user `airflow`, password `airflow`)
+
+## API usage
+
+The API is structured in MVC (`controllers/`, `models/`, `app.py`) and protected by JWT (access 1h, refresh 7d). Two users are provisioned via env vars: `admin` and `viewer`.
+
+## Bruno collection
+
+A ready-to-use [Bruno](https://www.usebruno.com/) collection lives in `bruno/` (open the folder in Bruno --- "Open collection"). It includes:
+
+- two environments: `local` (<http://localhost:5000>) and `prod` (deployed VPS)
+- `auth/Login` --- automatically stores `access_token` and `refresh_token` in env vars
+- `auth/Refresh` --- uses the refresh token, refreshes `access_token`
+- `datamarts/{Biologiste,Chimiste,Ingenieur,Physicien}` --- pre-filled query params, auth via `{{access_token}}`
 
 ## Report
 

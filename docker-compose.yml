@@ -161,6 +161,11 @@ services:
         condition: service_healthy
       postgres-bootstrap:
         condition: service_completed_successfully
+    environment:
+      DATAMART_DSN: postgresql://airflow:airflow@postgres:5432/datamart
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      API_ADMIN_PASSWORD:  ${API_ADMIN_PASSWORD:-admin}
+      API_VIEWER_PASSWORD: ${API_VIEWER_PASSWORD:-viewer}
     ports:
       - "5000:5000"
 
