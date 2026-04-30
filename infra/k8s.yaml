@@ -294,6 +294,23 @@ spec:
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
+            - name: DATAMART_DSN
+              value: "postgresql://airflow:airflow@postgres:5432/datamart"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: efrei-secrets
+                  key: JWT_SECRET
+            - name: API_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: efrei-secrets
+                  key: API_ADMIN_PASSWORD
+            - name: API_VIEWER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: efrei-secrets
+                  key: API_VIEWER_PASSWORD
           ports:
             - containerPort: 5000
           readinessProbe:

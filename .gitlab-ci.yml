@@ -89,6 +89,9 @@ deploy:
       --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD"
       --from-literal=AIRFLOW_ADMIN_PASSWORD="$AIRFLOW_ADMIN_PASSWORD"
       --from-literal=AIRFLOW_INVIT_PASSWORD="$AIRFLOW_INVIT_PASSWORD"
+      --from-literal=JWT_SECRET="$JWT_SECRET"
+      --from-literal=API_ADMIN_PASSWORD="$API_ADMIN_PASSWORD"
+      --from-literal=API_VIEWER_PASSWORD="$API_VIEWER_PASSWORD"
     - kubectl apply -f infra/k8s.yaml
     - kubectl rollout restart deployment/postgres -n efrei-big-data
     - kubectl rollout restart deployment/airflow -n efrei-big-data
