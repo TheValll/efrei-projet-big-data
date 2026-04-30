@@ -36,11 +36,13 @@ Once up:
 
 The API is structured in MVC (`controllers/`, `models/`, `app.py`) and protected by JWT (access 1h, refresh 7d). Two users are provisioned via env vars: `admin` and `viewer`.
 
+In production, only the `viewer` account is exposed (read-only) --- credentials: `viewer` / `viewveronly`.
+
 ## Bruno collection
 
 A ready-to-use [Bruno](https://www.usebruno.com/) collection lives in `bruno/` (open the folder in Bruno --- "Open collection"). It includes:
 
-- two environments: `local` (<http://localhost:5000>) and `prod` (deployed VPS)
+- two environments: `local` (<http://localhost:5000>, pre-filled with `admin` / `admin`) and `prod` (deployed VPS, pre-filled with `viewer` / `viewveronly`)
 - `auth/Login` --- automatically stores `access_token` and `refresh_token` in env vars
 - `auth/Refresh` --- uses the refresh token, refreshes `access_token`
 - `datamarts/{Biologiste,Chimiste,Ingenieur,Physicien}` --- pre-filled query params, auth via `{{access_token}}`
