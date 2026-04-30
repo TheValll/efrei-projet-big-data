@@ -11,3 +11,5 @@ up: ## Build and start the full stack (postgres, hdfs, airflow, api)
 	$(COMPOSE) up -d --build
 
 down: ## Stop and remove containers (keeps volumes)
+	$(COMPOSE) down
+
