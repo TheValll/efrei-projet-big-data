@@ -17,6 +17,8 @@ dump: ## Dump the datamart database to dumps/datamart.sql
 	$(COMPOSE) exec -T postgres pg_dump -U postgres -d datamart > dumps/datamart.sql
 	@echo Dumped to dumps/datamart.sql
 
-restore: ## Restore the datamart dump (usage: make restore DUMP=dumps/datamart.sql)
+DUMP ?= dumps/datamart.sql
+restore: ## Restore the datamart dump (usage: make restore [DUMP=dumps/datamart.sql])
+	@if not exist "$(DUMP)" (echo Dump file not found: $(DUMP) & exit 1)
 	$(COMPOSE) exec -T postgres psql -U postgres -d datamart < $(DUMP)
 	@echo Restored from $(DUMP)
