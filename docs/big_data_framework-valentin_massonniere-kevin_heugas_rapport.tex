@@ -97,7 +97,16 @@ Les livrables attendus sont :
 
 \begin{itemize}
     \item un \textbf{rapport écrit} décrivant l'architecture, les choix techniques, les jeux de données mobilisés et les résultats obtenus ;
-    \item un \textbf{dépôt GitHub} regroupant l'ensemble du code source du pipeline.
+    \item un \textbf{dépôt GitHub} regroupant l'ensemble du code source du pipeline ;
+    \item une \textbf{vidéo de présentation (\href{https://youtu.be/aL-oo-nYbsM}{Lien})} démontrant le fonctionnement de bout en bout du projet, incluant notamment :
+    \begin{itemize}
+        \item l'orchestration du pipeline sous \textbf{Airflow} ;
+        \item la supervision des traitements via l'interface du \textbf{Spark Master} ;
+        \item la structuration des données dans les couches \textbf{HDFS} (Bronze, Silver, Gold) ;
+        \item l'exécution de requêtes \textbf{SQL} dans la base de données de service \textbf{PostgreSQL} ;
+        \item le test des différentes routes de l'\textbf{API} via \textbf{Postman} ;
+        \item la restitution finale et interactive via le tableau de bord \textbf{Power BI} (mettant en valeur les 4 datamarts).
+    \end{itemize}
 \end{itemize}
 
 \newpage
@@ -440,9 +449,75 @@ Le dépôt est miroiré sur GitLab pour profiter de son CI/CD intégré. Le fich
 % ----------- PARTIE 11 -------------
 \section{Visualisation des résultats via Power BI}
 
+La restitution finale des données du projet \textit{Hubble Lakehouse} s'appuie sur un rapport d'aide à la décision développé sous Power BI. Afin de répondre aux besoins spécifiques des différents acteurs du projet, le rapport est segmenté en quatre pages distinctes, chacune modélisant un datamart métier (Physicien, Chimiste, Biologiste et Ingénieur). L'interactivité des graphiques permet aux équipes scientifiques et techniques d'explorer la donnée de bout en bout de manière dynamique.
+
+\subsection{Datamart Physicien : Cartographie du ciel et temps d'exposition}
+L'objectif principal de ce tableau de bord est d'identifier les régions du ciel qui ont fait l'objet d'une sur-observation par le télescope spatial Hubble, tout en mettant en évidence les angles morts de la recherche astronomique.
+
+\begin{itemize}
+    \item \textbf{Indicateurs Clés de Performance (KPI) :} Le tableau de bord affiche un volume total massif de \textbf{1,57 million de zones uniques observées} (\textit{ra\_bin} distincts), représentant un temps d'exposition cumulé de plus de \textbf{551 millions de secondes} (soit environ 17,5 années d'observation cumulée en continu).
+    \item \textbf{Analyse Graphique :} Une vue cartographique matricielle croisant l'Ascension Droite (\textit{ra\_bin}) et la Déclinaison (\textit{dec\_bin}) permet de repérer instantanément les zones à forte densité d'exposition (marquées par des grappes de points volumineuses) et de localiser géométriquement les zones célestes totalement délaissées (les angles morts de recherche).
+    \end{itemize}
+
+\subsection{Datamart Chimiste : Analyse spectrographique et raies d'émission}
+Ce volet s'adresse aux équipes de recherche en astrochimie qui étudient la composition gazeuse de l'univers à travers l'utilisation de filtres spectroscopiques à bande étroite (permettant d'isoler les raies d'émission comme H$\alpha$, OIII, SII).
+
+\begin{itemize}
+    \item \textbf{Indicateurs Clés de Performance (KPI) :} Le modèle recense \textbf{671 objets célestes distincts} (étoiles, nébuleuses, galaxies) ayant été imagés avec ces filtres spécifiques. Le filtre \textbf{F164N} s'impose comme le filtre le plus fréquemment sollicité, totalisant à lui seul \textbf{7 240 observations}.
+    \item \textbf{Analyse Graphique :} Le graphique à barres empilées et la matrice croisée permettent de comprendre la stratégie scientifique : quelles cibles majeures ont été associées à quelles raies d'émission pour analyser la concentration d'éléments comme l'hydrogène ou l'oxygène ionisé.
+\end{itemize}
+
+\subsection{Datamart Biologiste : Impact de la météo spatiale et corruption radio}
+Cette page sert d'outil de contrôle qualité et de gestion des risques pour les astrobiologistes. Le croisement des métadonnées de Hubble avec les archives de la NOAA permet de détecter les images acquises durant une éruption solaire ou une tempête géomagnétique majeure.
+
+\begin{itemize}
+    \item \textbf{Indicateurs Clés de Performance (KPI) :} Sur un total de \textbf{60 030 observations analysées}, le pipeline a calculé un score de risque critique. Le tableau de bord isole de manière alarmante \textbf{5 726 observations présentant un risque de corruption sévère} (score supérieur à 80 sur 100), majoritairement corrélées à des éruptions solaires de classe X ou M.
+    \item \textbf{Analyse Graphique :} Grâce à un graphique de distribution des risques et à une table de détails profitant d'une mise en forme conditionnelle (alertes visuelles rouges), les scientifiques peuvent exporter instantanément la liste exacte des \textit{obs\_id} altérés afin de les exclure définitivement de leurs modèles d'analyse pour éviter tout biais.
+\end{itemize}
+
+\subsection{Datamart Ingénieur : Suivi et maintenance des instruments}
+Destiné aux équipes d'ingénierie matérielle de la NASA et de l'ESA, ce tableau de bord assure le monitoring des performances opérationnelles de Hubble au fil des années, en se focalisant sur le temps requis pour calibrer les instruments de mesure.
+
+\begin{itemize}
+    \item \textbf{Indicateurs Clés de Performance (KPI) :} L'analyse identifie la caméra grand champ \textbf{WFC3/IR} comme l'instrument le plus critique de la stack matérielle, affichant la dérive temporelle de calibrage la plus prononcée.
+    \item \textbf{Analyse Graphique :} Un graphique en cascade (\textit{Waterfall chart}) illustre de manière flagrante l'évolution de l'indicateur \textit{trend\_12m}. La croissance systématique et positive de la courbe temporelle du temps moyen de calibration prouve mathématiquement le vieillissement des composants matériels de la WFC3, justifiant le besoin d'ajustements algorithmiques ou de maintenance préventive au niveau du sol.
+\end{itemize}
+
 \newpage
 % ----------- PARTIE 12 -------------
 \section{Conclusion}
+
+Le projet \textit{Hubble Lakehouse} a permis de concevoir et de déployer avec succès une architecture Big Data robuste, scalable et fonctionnelle de bout en bout. En appliquant rigoureusement le paradigme \textit{Médaillon} (couches Bronze, Silver, Gold), nous avons pu démontrer notre capacité à traiter des volumes de données hétérogènes, alliant un historique massif en mode batch (archives MAST) à un flux continu (NOAA SWPC).
+
+\subsection{Bilan technique et fonctionnel}
+
+D'un point de vue technique, l'intégration harmonieuse des différentes briques de l'écosystème Big Data a été réalisée avec succès. L'orchestration stricte par Apache Airflow garantit la résilience et l'idempotence de la chaîne de traitement. De plus, la séparation de la couche de calcul (Apache Spark / HDFS / Hive) et de la couche de service (PostgreSQL), couplée à l'exposition des données via une API sécurisée par JWT, respecte les standards professionnels de l'industrie.
+
+D'un point de vue fonctionnel, la restitution interactive sur Power BI a prouvé que la donnée brute avait été transformée en information décisionnelle à forte valeur ajoutée. Les quatre datamarts construits répondent précisément aux attentes des métiers visés :
+\begin{itemize}
+    \item cartographie et optimisation des observations pour les \textbf{Physiciens} et \textbf{Chimistes} ;
+    \item prévention des risques liés aux radiations spatiales pour les \textbf{Biologistes} ;
+    \item surveillance de la dégradation et du temps de calibration du matériel pour les \textbf{Ingénieurs}.
+\end{itemize}
+
+\subsection{Défis rencontrés et solutions apportées}
+
+La mise en œuvre de cette stack complexe, particulièrement en environnement de développement local, a nécessité de surmonter plusieurs défis. 
+
+Le principal challenge a résidé dans la gestion des ressources et la compatibilité matérielle. L'exécution de conteneurs Spark contraints à l'architecture \textit{x86\_64} sur des machines hôtes de type Apple Silicon (ARM64) a généré des problèmes de dépendances (librairies C) et des dépassements de mémoire (OOM Kill) lors de l'ingestion d'années entières de données météo. Ces obstacles ont été surmontés grâce à la configuration de l'émulation Docker (Rosetta/QEMU), l'optimisation minutieuse des variables \texttt{executor\_memory} de Spark et l'échantillonnage temporel adapté pour la démonstration. 
+
+Par ailleurs, le déploiement de l'ensemble de l'infrastructure sur un cluster Kubernetes avec un pipeline CI/CD automatisé a exigé une gestion stricte du routage réseau et des secrets.
+
+\subsection{Perspectives d'évolution}
+
+Bien que l'architecture actuelle réponde parfaitement au cahier des charges, plusieurs axes d'amélioration peuvent être envisagés pour une version ultérieure :
+\begin{itemize}
+    \item \textbf{Intégration d'Intelligence Artificielle :} Ajouter une surcouche de Machine Learning (MLlib) pour anticiper la dérive matérielle (maintenance prédictive des instruments) ou automatiser la classification de la dangerosité des éruptions solaires.
+    \item \textbf{Passage à l'échelle (Cloud Public) :} Migrer le stockage HDFS et le calcul Spark vers des services cloud managés (ex: AWS EMR/S3, Databricks) afin d'être en mesure de traiter les pétaoctets d'images brutes au format FITS, en plus des simples métadonnées.
+    \item \textbf{Alerting temps réel :} Remplacer le micro-batching par une architecture orientée événements pure (comme Apache Kafka) couplée à un système de webhooks, permettant de notifier les équipes instantanément dès l'apparition d'une anomalie spatiale.
+\end{itemize}
+
+En définitive, ce projet nous a permis de consolider nos compétences transverses en Data Engineering, en concevant un système d'information complet et \textit{data-driven}, depuis la source d'information brute jusqu'à l'outil d'aide à la décision final.
 
 \newpage
 \thispagestyle{empty}
@@ -484,3 +559,4 @@ Le dépôt est miroiré sur GitLab pour profiter de son CI/CD intégré. Le fich
 \vspace*{\fill}
 
 \end{document}
+
